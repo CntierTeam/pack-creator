@@ -1,21 +1,53 @@
-//! Gradle-inspired `build.pk` DSL.
+//! Gradle-inspired `build.pk` DSL — **all pack configuration aggregates here**.
 //!
-//! ```text
-//! project {
-//!   name = "demo"
-//!   namespace = "demo"
-//!   version = "1.0.0"
-//! }
-//!
-//! mappings {
-//!   mode = WHOLE
-//! }
-//! ```
+//! `src/main/resourcepack/` holds static assets; optional YAML under
+//! `src/main/configuration/` only merges as extras (build.pk wins on key clash).
 
+use crate::config::LoadedConfigs;
 use crate::error::{Error, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value as YamlValue;
 use std::collections::BTreeMap;
+
+const META_ROOTS: &[&str] = &["project", "mappings", "pack", "export"];
+
+/// Content section root name in build.pk → canonical LoadedConfigs key.
+const CONTENT_ROOTS: &[(&str, &str)] = &[
+    ("images", "images"),
+    ("image", "images"),
+    ("emojis", "emojis"),
+    ("emoji", "emojis"),
+    ("items", "items"),
+    ("item", "items"),
+    ("blocks", "blocks"),
+    ("block", "blocks"),
+    ("entityModels", "entity_models"),
+    ("entity_models", "entity_models"),
+    ("entities", "entity_models"),
+    ("entity", "entity_models"),
+    ("lang", "lang"),
+    ("languages", "lang"),
+    ("language", "lang"),
+    ("sounds", "sounds"),
+    ("sound", "sounds"),
+    ("equipments", "equipments"),
+    ("equipment", "equipments"),
+    ("furniture", "furniture"),
+    ("paintings", "paintings"),
+    ("painting", "paintings"),
+    ("templates", "templates"),
+    ("template", "templates"),
+    ("globalVariables", "global-variables"),
+    ("global_variables", "global-variables"),
+    ("recipes", "recipes"),
+    ("recipe", "recipes"),
+    ("categories", "categories"),
+    ("category", "categories"),
+    ("lootTables", "loot-tables"),
+    ("loot_tables", "loot-tables"),
+    ("gui", "gui"),
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildPk {
@@ -23,6 +55,9 @@ pub struct BuildPk {
     pub mappings: MappingsConfig,
     pub pack: PackConfig,
     pub export: ExportConfig,
+    /// Aggregated content: canonical section → id → yaml mapping/value.
+    #[serde(default)]
+    pub contents: BTreeMap<String, BTreeMap<String, YamlValue>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,7 +115,6 @@ pub struct FontMappingConfig {
 fn default_codepoint() -> u32 {
     19_968
 }
-
 fn default_offset_font() -> String {
     "minecraft:default".into()
 }
@@ -277,6 +311,7 @@ impl Default for BuildPk {
             mappings: MappingsConfig::default(),
             pack: PackConfig::default(),
             export: ExportConfig::default(),
+            contents: BTreeMap::new(),
         }
     }
 }
@@ -287,24 +322,135 @@ impl BuildPk {
         b.project.name = name.to_string();
         b.project.namespace = namespace.to_string();
         b.pack.description = format!("<white>{name}</white>");
+        b.contents = default_scaffold_contents(namespace, name);
         b
+    }
+
+    pub fn parse(source: &str) -> Result<Self> {
+        parse_build_pk(source)
+    }
+
+    /// Merge aggregated build.pk contents into LoadedConfigs (build.pk wins).
+    pub fn apply_to_configs(&self, configs: &mut LoadedConfigs) {
+        for (section, entries) in &self.contents {
+            match section.as_str() {
+                "images" => {
+                    for (id, v) in entries {
+                        configs.images.insert(id.clone(), v.clone());
+                    }
+                }
+                "emojis" => {
+                    for (id, v) in entries {
+                        configs.emojis.insert(id.clone(), v.clone());
+                    }
+                }
+                "items" => {
+                    for (id, v) in entries {
+                        configs.items.insert(id.clone(), v.clone());
+                    }
+                }
+                "entity_models" => {
+                    for (id, v) in entries {
+                        configs.entity_models.insert(id.clone(), v.clone());
+                    }
+                }
+                "lang" => {
+                    for (locale, v) in entries {
+                        let slot = configs.langs.entry(locale.clone()).or_default();
+                        if let YamlValue::Mapping(m) = v {
+                            for (k, val) in m {
+                                if let (Some(ks), Some(s)) = (k.as_str(), yaml_scalar_string(val)) {
+                                    slot.insert(ks.to_string(), s);
+                                }
+                            }
+                        }
+                    }
+                }
+                "sounds" => {
+                    for (id, v) in entries {
+                        configs.sounds.insert(id.clone(), v.clone());
+                    }
+                }
+                "equipments" => {
+                    for (id, v) in entries {
+                        configs.equipments.insert(id.clone(), v.clone());
+                    }
+                }
+                _ => {
+                    // keep in raw_sections for export
+                    configs
+                        .raw_sections
+                        .entry(section.clone())
+                        .or_default()
+                        .push((std::path::PathBuf::from("build.pk"), YamlValue::Mapping({
+                            let mut m = serde_yaml::Mapping::new();
+                            for (id, v) in entries {
+                                m.insert(YamlValue::String(id.clone()), v.clone());
+                            }
+                            m
+                        })));
+                }
+            }
+        }
     }
 
     pub fn render_dsl(&self) -> String {
         let f = &self.pack.features;
         let mut overrides = String::new();
         for (k, v) in &self.mappings.font.overrides {
-            overrides.push_str(&format!(
-                "      override(\"{k}\", {v})\n"
-            ));
+            overrides.push_str(&format!("      override(\"{k}\", {v})\n"));
         }
         let mut cmd_ov = String::new();
         for (k, v) in &self.mappings.custom_model_data.overrides {
             cmd_ov.push_str(&format!("      override(\"{k}\", {v})\n"));
         }
+
+        let mut content = String::new();
+        for (section, entries) in &self.contents {
+            let root = match section.as_str() {
+                "images" => "images",
+                "emojis" => "emojis",
+                "items" => "items",
+                "blocks" => "blocks",
+                "entity_models" => "entityModels",
+                "lang" => "lang",
+                "sounds" => "sounds",
+                "equipments" => "equipments",
+                "furniture" => "furniture",
+                "paintings" => "paintings",
+                "templates" => "templates",
+                "global-variables" => "globalVariables",
+                "recipes" => "recipes",
+                "categories" => "categories",
+                "loot-tables" => "lootTables",
+                "gui" => "gui",
+                other => other,
+            };
+            content.push_str(&format!("\n{root} {{\n"));
+            for (id, val) in entries {
+                match val {
+                    YamlValue::Mapping(_) => {
+                        content.push_str(&format!(
+                            "  \"{}\" {}\n",
+                            escape(id),
+                            render_yaml_as_dsl(val, 2)
+                        ));
+                    }
+                    _ => {
+                        content.push_str(&format!(
+                            "  \"{}\" = {}\n",
+                            escape(id),
+                            render_yaml_scalar(val)
+                        ));
+                    }
+                }
+            }
+            content.push_str("}\n");
+        }
+
         format!(
-            r#"// PackCreator build script (Gradle-inspired)
-// Project root MUST contain: build.pk + src/main/
+            r#"// PackCreator build.pk — all configuration aggregates in this file.
+// Static assets live under src/main/resourcepack/
 
 project {{
   name = "{name}"
@@ -316,7 +462,6 @@ project {{
 }}
 
 mappings {{
-  // WHOLE = embed full block_state_mappings table on pack export
   mode = {mode}
   font {{
     codepointStartingValue = {cp}
@@ -359,7 +504,7 @@ export {{
   packDir = "{pack_dir}"
   resourcePackZip = "{zip}"
 }}
-"#,
+{content}"#,
             name = escape(&self.project.name),
             ns = escape(&self.project.namespace),
             ver = escape(&self.project.version),
@@ -398,25 +543,440 @@ export {{
             entities = f.entities,
             pack_dir = escape(&self.export.pack_dir),
             zip = escape(&self.export.resource_pack_zip),
+            content = content,
         )
     }
+}
 
-    pub fn parse(source: &str) -> Result<Self> {
-        parse_build_pk(source)
+fn yaml_scalar_string(v: &YamlValue) -> Option<String> {
+    match v {
+        YamlValue::String(s) => Some(s.clone()),
+        YamlValue::Number(n) => Some(n.to_string()),
+        YamlValue::Bool(b) => Some(b.to_string()),
+        _ => None,
     }
+}
+
+fn default_scaffold_contents(ns: &str, name: &str) -> BTreeMap<String, BTreeMap<String, YamlValue>> {
+    let mut contents = BTreeMap::new();
+
+    let mut images = BTreeMap::new();
+    images.insert(
+        format!("{ns}:example_icon"),
+        yaml_map(&[
+            ("height", YamlValue::Number(16.into())),
+            ("ascent", YamlValue::Number(12.into())),
+            ("font", YamlValue::String("minecraft:default".into())),
+            ("file", YamlValue::String(format!("{ns}:font/example_icon.png"))),
+            ("grid_size", YamlValue::String("1,1".into())),
+        ]),
+    );
+    images.insert(
+        format!("{ns}:main_gui"),
+        yaml_map(&[
+            ("height", YamlValue::Number(140.into())),
+            ("ascent", YamlValue::Number(18.into())),
+            ("font", YamlValue::String("minecraft:gui".into())),
+            ("file", YamlValue::String(format!("{ns}:font/gui/main_gui.png"))),
+        ]),
+    );
+    contents.insert("images".into(), images);
+
+    let mut emojis = BTreeMap::new();
+    emojis.insert(
+        format!("{ns}:smile"),
+        yaml_map(&[
+            ("image", YamlValue::String(format!("{ns}:example_icon:0:0"))),
+            (
+                "keywords",
+                YamlValue::Sequence(vec![
+                    YamlValue::String(":)".into()),
+                    YamlValue::String(":smile:".into()),
+                ]),
+            ),
+            (
+                "content",
+                YamlValue::String(format!(
+                    "<white><image:{ns}:example_icon:0:0></white>"
+                )),
+            ),
+        ]),
+    );
+    contents.insert("emojis".into(), emojis);
+
+    let mut items = BTreeMap::new();
+    items.insert(
+        format!("{ns}:demo_item"),
+        yaml_map(&[
+            ("material", YamlValue::String("PAPER".into())),
+            (
+                "data",
+                yaml_map(&[(
+                    "display-name",
+                    YamlValue::String("<!i><white>Demo Item</white>".into()),
+                )]),
+            ),
+            (
+                "model",
+                yaml_map(&[
+                    ("type", YamlValue::String("minecraft:model".into())),
+                    ("path", YamlValue::String(format!("{ns}:item/demo_item"))),
+                    (
+                        "generation",
+                        yaml_map(&[
+                            (
+                                "parent",
+                                YamlValue::String("minecraft:item/generated".into()),
+                            ),
+                            (
+                                "textures",
+                                yaml_map(&[(
+                                    "layer0",
+                                    YamlValue::String(format!("{ns}:item/demo_item")),
+                                )]),
+                            ),
+                        ]),
+                    ),
+                ]),
+            ),
+        ]),
+    );
+    items.insert(
+        format!("{ns}:gui_next"),
+        yaml_map(&[
+            ("material", YamlValue::String("PAPER".into())),
+            (
+                "model",
+                yaml_map(&[
+                    ("type", YamlValue::String("minecraft:model".into())),
+                    ("path", YamlValue::String(format!("{ns}:item/gui/next"))),
+                    (
+                        "generation",
+                        yaml_map(&[
+                            (
+                                "parent",
+                                YamlValue::String("minecraft:item/generated".into()),
+                            ),
+                            (
+                                "textures",
+                                yaml_map(&[(
+                                    "layer0",
+                                    YamlValue::String(format!("{ns}:item/gui/next")),
+                                )]),
+                            ),
+                        ]),
+                    ),
+                ]),
+            ),
+        ]),
+    );
+    contents.insert("items".into(), items);
+
+    let mut entities = BTreeMap::new();
+    entities.insert(
+        format!("{ns}:demo_cow"),
+        yaml_map(&[
+            (
+                "model",
+                yaml_map(&[
+                    ("path", YamlValue::String(format!("{ns}:entity/demo_cow"))),
+                    ("parent", YamlValue::String("minecraft:block/block".into())),
+                    (
+                        "textures",
+                        yaml_map(&[("all", YamlValue::String(format!("{ns}:entity/demo_cow")))]),
+                    ),
+                ]),
+            ),
+            (
+                "replace_textures",
+                YamlValue::Sequence(vec![yaml_map(&[
+                    ("from", YamlValue::String(format!("{ns}:entity/demo_cow"))),
+                    (
+                        "to",
+                        YamlValue::String("minecraft:entity/cow/cow.png".into()),
+                    ),
+                ])]),
+            ),
+        ]),
+    );
+    contents.insert("entity_models".into(), entities);
+
+    let mut lang = BTreeMap::new();
+    let pack_name_key = format!("pack.{ns}.name");
+    lang.insert(
+        "en_us".into(),
+        yaml_map_owned(&[(pack_name_key.clone(), YamlValue::String(name.into()))]),
+    );
+    lang.insert(
+        "zh_cn".into(),
+        yaml_map_owned(&[(pack_name_key, YamlValue::String(name.into()))]),
+    );
+    contents.insert("lang".into(), lang);
+
+    let mut sounds = BTreeMap::new();
+    sounds.insert(
+        format!("{ns}:demo_click"),
+        yaml_map(&[
+            ("replace", YamlValue::Bool(false)),
+            (
+                "subtitle",
+                YamlValue::String(format!("subtitles.{ns}.demo_click")),
+            ),
+            (
+                "sounds",
+                YamlValue::Sequence(vec![YamlValue::String(format!("{ns}:ui/click"))]),
+            ),
+        ]),
+    );
+    contents.insert("sounds".into(), sounds);
+
+    let mut equipments = BTreeMap::new();
+    equipments.insert(
+        format!("{ns}:demo_trim"),
+        yaml_map(&[
+            ("type", YamlValue::String("component".into())),
+            (
+                "humanoid",
+                YamlValue::String(format!("{ns}:entity/equipment/humanoid/demo")),
+            ),
+            (
+                "humanoid_leggings",
+                YamlValue::String(format!("{ns}:entity/equipment/humanoid_leggings/demo")),
+            ),
+        ]),
+    );
+    contents.insert("equipments".into(), equipments);
+
+    let mut blocks = BTreeMap::new();
+    blocks.insert(
+        format!("{ns}:demo_block"),
+        yaml_map(&[
+            (
+                "settings",
+                yaml_map(&[
+                    ("hardness", YamlValue::Number(serde_yaml::Number::from(1.5))),
+                    (
+                        "resistance",
+                        YamlValue::Number(serde_yaml::Number::from(1.5)),
+                    ),
+                ]),
+            ),
+            (
+                "state",
+                yaml_map(&[
+                    ("auto_state", YamlValue::String("solid".into())),
+                    (
+                        "model",
+                        yaml_map(&[
+                            ("type", YamlValue::String("minecraft:model".into())),
+                            (
+                                "path",
+                                YamlValue::String(format!("{ns}:block/demo_block")),
+                            ),
+                        ]),
+                    ),
+                ]),
+            ),
+        ]),
+    );
+    contents.insert("blocks".into(), blocks);
+
+    let mut furniture = BTreeMap::new();
+    furniture.insert(
+        format!("{ns}:demo_chair"),
+        yaml_map(&[(
+            "settings",
+            yaml_map(&[("item", YamlValue::String(format!("{ns}:demo_item")))]),
+        )]),
+    );
+    contents.insert("furniture".into(), furniture);
+
+    let mut paintings = BTreeMap::new();
+    paintings.insert(
+        format!("{ns}:demo_art"),
+        yaml_map(&[
+            ("width", YamlValue::Number(1.into())),
+            ("height", YamlValue::Number(1.into())),
+            ("asset_id", YamlValue::String(format!("{ns}:demo_art"))),
+            ("title", YamlValue::String("<white>Demo Art</white>".into())),
+            (
+                "author",
+                YamlValue::String("<gray>PackCreator</gray>".into()),
+            ),
+        ]),
+    );
+    contents.insert("paintings".into(), paintings);
+
+    let mut templates = BTreeMap::new();
+    templates.insert(
+        format!("{ns}:placeholder/basic"),
+        yaml_map(&[(
+            "content",
+            YamlValue::String("<gray>${text:-hello}</gray>".into()),
+        )]),
+    );
+    contents.insert("templates".into(), templates);
+
+    let mut globals = BTreeMap::new();
+    globals.insert(
+        format!("{ns}:welcome"),
+        YamlValue::String(format!("<white>Welcome to {name}</white>")),
+    );
+    contents.insert("global-variables".into(), globals);
+
+    let mut recipes = BTreeMap::new();
+    recipes.insert(
+        format!("{ns}:demo_craft"),
+        yaml_map(&[
+            ("type", YamlValue::String("shaped".into())),
+            (
+                "pattern",
+                YamlValue::Sequence(vec![
+                    YamlValue::String(" A ".into()),
+                    YamlValue::String(" A ".into()),
+                    YamlValue::String(" B ".into()),
+                ]),
+            ),
+            (
+                "ingredients",
+                yaml_map(&[
+                    ("A", YamlValue::String("PAPER".into())),
+                    ("B", YamlValue::String("STICK".into())),
+                ]),
+            ),
+            (
+                "result",
+                yaml_map(&[
+                    ("id", YamlValue::String(format!("{ns}:demo_item"))),
+                    ("count", YamlValue::Number(1.into())),
+                ]),
+            ),
+        ]),
+    );
+    contents.insert("recipes".into(), recipes);
+
+    let mut categories = BTreeMap::new();
+    categories.insert(
+        format!("{ns}:demo"),
+        yaml_map(&[
+            ("name", YamlValue::String("<white>Demo</white>".into())),
+            ("icon", YamlValue::String(format!("{ns}:demo_item"))),
+            (
+                "list",
+                YamlValue::Sequence(vec![YamlValue::String(format!("{ns}:demo_item"))]),
+            ),
+        ]),
+    );
+    contents.insert("categories".into(), categories);
+
+    let mut loot = BTreeMap::new();
+    loot.insert(
+        format!("{ns}:demo_drop"),
+        yaml_map(&[(
+            "pools",
+            YamlValue::Sequence(vec![yaml_map(&[
+                ("rolls", YamlValue::Number(1.into())),
+                (
+                    "entries",
+                    YamlValue::Sequence(vec![yaml_map(&[
+                        ("type", YamlValue::String("item".into())),
+                        ("item", YamlValue::String(format!("{ns}:demo_item"))),
+                        ("weight", YamlValue::Number(1.into())),
+                    ])]),
+                ),
+            ])]),
+        )]),
+    );
+    contents.insert("loot-tables".into(), loot);
+
+    contents
+}
+
+fn yaml_map(entries: &[(&str, YamlValue)]) -> YamlValue {
+    let mut m = serde_yaml::Mapping::new();
+    for (k, v) in entries {
+        m.insert(YamlValue::String((*k).to_string()), v.clone());
+    }
+    YamlValue::Mapping(m)
+}
+
+fn yaml_map_owned(entries: &[(String, YamlValue)]) -> YamlValue {
+    let mut m = serde_yaml::Mapping::new();
+    for (k, v) in entries {
+        m.insert(YamlValue::String(k.clone()), v.clone());
+    }
+    YamlValue::Mapping(m)
 }
 
 fn escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+fn render_yaml_as_dsl(v: &YamlValue, indent: usize) -> String {
+    let pad = " ".repeat(indent);
+    match v {
+        YamlValue::Mapping(m) => {
+            let mut out = String::from("{\n");
+            for (k, val) in m {
+                let key = k.as_str().unwrap_or("?");
+                let key_render = if key
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    key.to_string()
+                } else {
+                    format!("\"{}\"", escape(key))
+                };
+                match val {
+                    YamlValue::Mapping(_) => {
+                        out.push_str(&format!(
+                            "{pad}  {key_render} {}\n",
+                            render_yaml_as_dsl(val, indent + 2)
+                        ));
+                    }
+                    _ => {
+                        out.push_str(&format!(
+                            "{pad}  {key_render} = {}\n",
+                            render_yaml_scalar(val)
+                        ));
+                    }
+                }
+            }
+            out.push_str(&format!("{pad}}}"));
+            out
+        }
+        YamlValue::Sequence(seq) => {
+            let parts: Vec<String> = seq.iter().map(render_yaml_scalar).collect();
+            format!("[{}]", parts.join(", "))
+        }
+        other => render_yaml_scalar(other),
+    }
+}
+
+fn render_yaml_scalar(v: &YamlValue) -> String {
+    match v {
+        YamlValue::Bool(b) => b.to_string(),
+        YamlValue::Number(n) => n.to_string(),
+        YamlValue::String(s) => format!("\"{}\"", escape(s)),
+        YamlValue::Null => "null".into(),
+        YamlValue::Sequence(seq) => {
+            let parts: Vec<String> = seq.iter().map(render_yaml_scalar).collect();
+            format!("[{}]", parts.join(", "))
+        }
+        YamlValue::Mapping(_) => render_yaml_as_dsl(v, 0),
+        YamlValue::Tagged(t) => render_yaml_scalar(&t.value),
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Value {
     String(String),
     Int(i64),
+    Float(f64),
     Bool(bool),
     Ident(String),
     Block(IndexMap<String, Value>),
+    List(Vec<Value>),
     Call { name: String, args: Vec<Value> },
 }
 
@@ -504,11 +1064,45 @@ impl<'a> Parser<'a> {
         Err(Error::BuildPk("unterminated string".into()))
     }
 
+    fn parse_key(&mut self) -> Result<String> {
+        self.skip_ws_comments();
+        if self.peek() == Some('"') {
+            self.parse_string()
+        } else {
+            self.expect_ident()
+        }
+    }
+
+    fn parse_list(&mut self) -> Result<Value> {
+        self.expect_char('[')?;
+        let mut items = Vec::new();
+        loop {
+            self.skip_ws_comments();
+            if self.peek() == Some(']') {
+                self.bump();
+                break;
+            }
+            items.push(self.parse_value()?);
+            self.skip_ws_comments();
+            if self.peek() == Some(',') {
+                self.bump();
+                continue;
+            }
+            if self.peek() == Some(']') {
+                self.bump();
+                break;
+            }
+            return Err(Error::BuildPk("expected , or ] in list".into()));
+        }
+        Ok(Value::List(items))
+    }
+
     fn parse_value(&mut self) -> Result<Value> {
         self.skip_ws_comments();
         match self.peek() {
             Some('"') => Ok(Value::String(self.parse_string()?)),
             Some('{') => Ok(Value::Block(self.parse_block_body()?)),
+            Some('[') => self.parse_list(),
             Some(c) if c == '-' || c.is_ascii_digit() => {
                 let start = self.i;
                 if c == '-' {
@@ -517,10 +1111,21 @@ impl<'a> Parser<'a> {
                 while matches!(self.peek(), Some(d) if d.is_ascii_digit()) {
                     self.bump();
                 }
-                let n: i64 = self.src[start..self.i]
-                    .parse()
-                    .map_err(|e| Error::BuildPk(format!("bad int: {e}")))?;
-                Ok(Value::Int(n))
+                if self.peek() == Some('.') {
+                    self.bump();
+                    while matches!(self.peek(), Some(d) if d.is_ascii_digit()) {
+                        self.bump();
+                    }
+                    let n: f64 = self.src[start..self.i]
+                        .parse()
+                        .map_err(|e| Error::BuildPk(format!("bad float: {e}")))?;
+                    Ok(Value::Float(n))
+                } else {
+                    let n: i64 = self.src[start..self.i]
+                        .parse()
+                        .map_err(|e| Error::BuildPk(format!("bad int: {e}")))?;
+                    Ok(Value::Int(n))
+                }
             }
             Some(c) if c.is_ascii_alphabetic() || c == '_' => {
                 let ident = self.expect_ident()?;
@@ -546,6 +1151,8 @@ impl<'a> Parser<'a> {
                     Ok(Value::Bool(true))
                 } else if ident == "false" {
                     Ok(Value::Bool(false))
+                } else if ident == "null" {
+                    Ok(Value::Ident("null".into()))
                 } else {
                     Ok(Value::Ident(ident))
                 }
@@ -566,15 +1173,13 @@ impl<'a> Parser<'a> {
                 self.bump();
                 break;
             }
-            let key = self.expect_ident()?;
+            let key = self.parse_key()?;
             self.skip_ws_comments();
             if self.peek() == Some('{') {
-                let body = Value::Block(self.parse_block_body()?);
-                map.insert(key, body);
+                map.insert(key, Value::Block(self.parse_block_body()?));
                 continue;
             }
             if self.peek() == Some('(') {
-                // statement call: override("x", 1)
                 self.bump();
                 let mut args = Vec::new();
                 self.skip_ws_comments();
@@ -621,6 +1226,7 @@ fn as_str(v: &Value) -> Result<String> {
         Value::String(s) => Ok(s.clone()),
         Value::Ident(s) => Ok(s.clone()),
         Value::Int(i) => Ok(i.to_string()),
+        Value::Float(f) => Ok(f.to_string()),
         Value::Bool(b) => Ok(b.to_string()),
         _ => Err(Error::BuildPk("expected string".into())),
     }
@@ -649,11 +1255,78 @@ fn block<'a>(v: &'a Value) -> Result<&'a IndexMap<String, Value>> {
     }
 }
 
+fn value_to_yaml(v: &Value) -> YamlValue {
+    match v {
+        Value::String(s) => YamlValue::String(s.clone()),
+        Value::Ident(s) if s == "null" => YamlValue::Null,
+        Value::Ident(s) => YamlValue::String(s.clone()),
+        Value::Int(i) => YamlValue::Number((*i).into()),
+        Value::Float(f) => YamlValue::Number(serde_yaml::Number::from(*f)),
+        Value::Bool(b) => YamlValue::Bool(*b),
+        Value::List(items) => YamlValue::Sequence(items.iter().map(value_to_yaml).collect()),
+        Value::Block(m) => {
+            let mut out = serde_yaml::Mapping::new();
+            for (k, val) in m {
+                if k.starts_with("__call_") {
+                    continue;
+                }
+                out.insert(YamlValue::String(k.clone()), value_to_yaml(val));
+            }
+            YamlValue::Mapping(out)
+        }
+        Value::Call { name, args } => {
+            // represent as mapping for odd cases
+            let mut m = serde_yaml::Mapping::new();
+            m.insert(
+                YamlValue::String("call".into()),
+                YamlValue::String(name.clone()),
+            );
+            m.insert(
+                YamlValue::String("args".into()),
+                YamlValue::Sequence(args.iter().map(value_to_yaml).collect()),
+            );
+            YamlValue::Mapping(m)
+        }
+    }
+}
+
+fn ingest_content_block(
+    contents: &mut BTreeMap<String, BTreeMap<String, YamlValue>>,
+    canon: &str,
+    body: &IndexMap<String, Value>,
+) {
+    if canon == "gui" {
+        // gui { images {..} items {..} } OR gui { "id" { font/file... } }
+        if let Some(Value::Block(images)) = body.get("images") {
+            ingest_content_block(contents, "images", images);
+        }
+        if let Some(Value::Block(items)) = body.get("items") {
+            ingest_content_block(contents, "items", items);
+        }
+        for (k, v) in body {
+            if k == "images" || k == "items" || k.starts_with("__call_") {
+                continue;
+            }
+            // bare gui entries → images
+            let slot = contents.entry("images".into()).or_default();
+            slot.insert(k.clone(), value_to_yaml(v));
+        }
+        return;
+    }
+
+    let slot = contents.entry(canon.to_string()).or_default();
+    for (k, v) in body {
+        if k.starts_with("__call_") {
+            continue;
+        }
+        slot.insert(k.clone(), value_to_yaml(v));
+    }
+}
+
 fn parse_build_pk(source: &str) -> Result<BuildPk> {
     let mut p = Parser::new(source);
     let root = p.parse_file()?;
     let mut out = BuildPk::default();
-    // Force explicit project identity; defaults are only for generated scaffolds.
     out.project.name.clear();
     out.project.namespace.clear();
 
@@ -702,7 +1375,7 @@ fn parse_build_pk(source: &str) -> Result<BuildPk> {
             if let Some(v) = f.get("offsetFont") {
                 out.mappings.font.offset_font = as_str(v)?;
             }
-            for (k, v) in f {
+            for (_k, v) in f {
                 if let Value::Call { name, args } = v {
                     if name == "override" && args.len() == 2 {
                         out.mappings
@@ -711,7 +1384,6 @@ fn parse_build_pk(source: &str) -> Result<BuildPk> {
                             .insert(as_str(&args[0])?, as_u32(&args[1])?);
                     }
                 }
-                let _ = k;
             }
         }
         if let Some(cmd) = m.get("customModelData") {
@@ -788,6 +1460,23 @@ fn parse_build_pk(source: &str) -> Result<BuildPk> {
         }
     }
 
+    // Aggregate all content roots from build.pk
+    for (name, val) in &root {
+        if META_ROOTS.contains(&name.as_str()) {
+            continue;
+        }
+        let Some((_, canon)) = CONTENT_ROOTS.iter().find(|(a, _)| *a == name.as_str()) else {
+            // unknown root still ingested under its name
+            if let Value::Block(body) = val {
+                ingest_content_block(&mut out.contents, name, body);
+            }
+            continue;
+        };
+        if let Value::Block(body) = val {
+            ingest_content_block(&mut out.contents, canon, body);
+        }
+    }
+
     if out.project.name.is_empty() || out.project.namespace.is_empty() {
         return Err(Error::BuildPk(
             "project.name and project.namespace are required".into(),
@@ -807,95 +1496,39 @@ mod tests {
         let parsed = BuildPk::parse(&text).unwrap();
         assert_eq!(parsed.project.name, "demo");
         assert_eq!(parsed.mappings.mode, MappingsMode::Whole);
-        assert!(parsed.pack.features.images);
+        assert!(parsed.contents.contains_key("items"));
+        assert!(parsed.contents["items"].contains_key("demo:demo_item"));
+        assert!(parsed.contents.contains_key("images"));
+        assert!(parsed.contents["images"].contains_key("demo:main_gui"));
+        assert!(parsed.contents.contains_key("entity_models"));
     }
 
     #[test]
-    fn parse_feature_flags_and_export_paths() {
+    fn content_string_keys_and_lists() {
         let src = r#"
-project {
-  name = "p"
-  namespace = "ns"
-  version = "2.0.0"
-  enable = false
-}
-mappings {
-  mode = CUSTOM
-  font {
-    codepointStartingValue = 100
-    offsetCharacters = false
-    offsetFont = "minecraft:alt"
-    override("minecraft:default", 60000)
-  }
-  customModelData {
-    startingValue = 42
-    override("PAPER", 99)
+project { name = "p" namespace = "ns" }
+items {
+  "ns:sword" {
+    material = "DIAMOND_SWORD"
+    model {
+      path = "ns:item/sword"
+      generation {
+        parent = "minecraft:item/handheld"
+        textures { layer0 = "ns:item/sword" }
+      }
+    }
   }
 }
-pack {
-  packFormat = 15
-  description = "hi"
-  supportedVersion {
-    min = "1.19"
-    max = "1.21"
+emojis {
+  "ns:hi" {
+    keywords = [":)", ":hi:"]
+    content = "x"
   }
-  features {
-    images = true
-    items = false
-    blocks = false
-    lootTables = false
-  }
-}
-export {
-  packDir = "out/pack"
-  resourcePackZip = "out/pack.zip"
 }
 "#;
         let b = BuildPk::parse(src).unwrap();
-        assert!(!b.project.enable);
-        assert_eq!(b.mappings.mode, MappingsMode::Custom);
-        assert_eq!(b.mappings.font.codepoint_starting_value, 100);
-        assert!(!b.mappings.font.offset_characters);
-        assert_eq!(
-            b.mappings.font.overrides.get("minecraft:default"),
-            Some(&60_000)
-        );
-        assert_eq!(b.mappings.custom_model_data.starting_value, 42);
-        assert_eq!(
-            b.mappings.custom_model_data.overrides.get("PAPER"),
-            Some(&99)
-        );
-        assert_eq!(b.pack.pack_format, 15);
-        assert_eq!(b.pack.supported_version.min, "1.19");
-        assert!(b.pack.features.images);
-        assert!(!b.pack.features.items);
-        assert!(!b.pack.features.blocks);
-        assert!(!b.pack.features.loot_tables);
-        assert_eq!(b.export.pack_dir, "out/pack");
-        assert_eq!(b.export.resource_pack_zip, "out/pack.zip");
-    }
-
-    #[test]
-    fn parse_rejects_unknown_mappings_mode() {
-        let src = r#"
-project { name = "a" namespace = "a" }
-mappings { mode = NOPE }
-"#;
-        let err = BuildPk::parse(src).unwrap_err();
-        assert!(err.to_string().contains("unknown mappings mode"));
-    }
-
-    #[test]
-    fn comments_are_ignored() {
-        let src = r#"
-// leading comment
-project {
-  // inside
-  name = "c"
-  namespace = "c"
-}
-"#;
-        let b = BuildPk::parse(src).unwrap();
-        assert_eq!(b.project.name, "c");
+        assert!(b.contents["items"].contains_key("ns:sword"));
+        let emoji = &b.contents["emojis"]["ns:hi"];
+        assert!(matches!(emoji["keywords"], YamlValue::Sequence(_)));
     }
 }

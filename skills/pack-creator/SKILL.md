@@ -23,10 +23,11 @@ Repo: https://github.com/CntierTeam/pack-creator
 
 1. A Project **must** contain `build.pk` and `src/main/` (with `configuration/` + `resourcepack/`).
 2. Prefer the **pack-creator binary** over re-implementing packing in ad-hoc scripts.
-3. `mappings.mode = WHOLE` embeds the full `block_state_mappings` table on pack export.
-4. Local zip generates fonts (incl. GUI), lang, sounds, equipment, **item models**, **entity model/texture replace**, and static assets.
-5. On fuseblk mounts (e.g. `/projectsDir`), keep Cargo artifacts on a native FS (`CARGO_TARGET_DIR`).
-6. Code/comments in English; user-facing replies follow the user’s language.
+3. **All pack config aggregates in `build.pk`** (items/images/gui/entities/…). YAML under `configuration/` is optional overlay; `build.pk` wins.
+4. `mappings.mode = WHOLE` embeds the full `block_state_mappings` table on pack export.
+5. Local zip generates fonts (incl. GUI), lang, sounds, equipment, **item models**, **entity model/texture replace**, and static assets.
+6. On fuseblk mounts (e.g. `/projectsDir`), keep Cargo artifacts on a native FS (`CARGO_TARGET_DIR`).
+7. Code/comments in English; user-facing replies follow the user’s language.
 
 ## Resolve the binary
 
@@ -66,10 +67,10 @@ curl -fsSL https://raw.githubusercontent.com/CntierTeam/pack-creator/main/script
 
 ```text
 MyPack/
-  build.pk
+  build.pk             # ALL configuration (meta + content sections)
   src/main/
     pack.yml
-    configuration/     # pack YAML sections
+    configuration/     # optional YAML overlays
     resourcepack/      # static assets
   build/               # created by build
     pack/<name>/
@@ -84,7 +85,7 @@ Read [references/project-layout.md](references/project-layout.md) for `build.pk`
 
 1. Confirm cwd is PackCreator repo or an existing Project (`build.pk` present).
 2. Create: `pack-creator new ./MyPack --name MyPack --namespace mypack`.
-3. Edit `build.pk` + `src/main/configuration/*.yml` + assets under `resourcepack/`.
+3. Edit `build.pk` (aggregate config) + assets under `resourcepack/`.
 4. `pack-creator check .` then `pack-creator build .`.
 5. Use `build/pack/<name>/` as the project pack tree; ship `build/resource_pack.zip` to clients.
 

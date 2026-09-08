@@ -4,9 +4,9 @@
 
 | Path | Role |
 |------|------|
-| `build.pk` | Gradle-inspired DSL: project meta, mappings, pack features, export paths |
-| `src/main/configuration/` | Pack YAML sections (recursive) |
+| `build.pk` | **All** pack configuration: project meta, mappings, features, export, **and** content sections (`items` / `images` / `entityModels` / …) |
 | `src/main/resourcepack/` | Static Minecraft assets merged into zip / pack tree |
+| `src/main/configuration/` | Optional YAML overlays only (`build.pk` wins on id clash) |
 | `src/main/pack.yml` | Author-facing meta (export also writes `pack.yml`) |
 
 ## build.pk essentials
@@ -46,6 +46,8 @@ pack {
     furniture = true
     templates = true
     placeholders = true
+    gui = true
+    entities = true
   }
 }
 
@@ -53,24 +55,57 @@ export {
   packDir = "build/pack"
   resourcePackZip = "build/resource_pack.zip"
 }
+
+items {
+  "mypack:demo_item" {
+    material = "PAPER"
+    model {
+      path = "mypack:item/demo_item"
+      generation {
+        parent = "minecraft:item/generated"
+        textures { layer0 = "mypack:item/demo_item" }
+      }
+    }
+  }
+}
+
+images {
+  "mypack:main_gui" {
+    height = 140
+    ascent = 18
+    font = "minecraft:gui"
+    file = "mypack:font/gui/main_gui.png"
+  }
+}
+
+entityModels {
+  "mypack:demo_cow" {
+    model {
+      path = "mypack:entity/demo_cow"
+      parent = "minecraft:block/block"
+      textures { all = "mypack:entity/demo_cow" }
+    }
+  }
+}
 ```
+
+Content roots (aliases accepted): `images`, `emojis`, `items`, `blocks`, `entityModels`, `lang`, `sounds`, `equipments`, `furniture`, `paintings`, `templates`, `globalVariables`, `recipes`, `categories`, `lootTables`, `gui` (flattens nested `images`/`items`).
 
 - `WHOLE`: on build, emit full `block_state_mappings.yml` unless the Project already defines that section.
 - `CUSTOM`: skip embedding the whole table.
+- Quoted keys (`"ns:id"`) and lists (`keywords = [":)", ":hi:"]`) are supported.
 
-## Configuration section aliases (scan)
+## Configuration section aliases (YAML overlays)
 
 Canonical keys (aliases accepted):
 
-`templates`, `global-variables`, `images`, `emojis`, `lang`, `translations`, `sounds`, `jukebox-songs`, `equipments`, `items`, `blocks`, `block_state_mappings`, `furniture`, `paintings`, `recipes`, `categories`, `loot-tables`, `config_factory`
-
-Suffixes like `lang#items` are treated as `lang`.
+`templates`, `global-variables`, `images`, `emojis`, `lang`, `translations`, `sounds`, `jukebox-songs`, `equipments`, `items`, `blocks`, `block_state_mappings`, `furniture`, `paintings`, `recipes`, `categories`, `loot-tables`, `config_factory`, `entity_models`
 
 ## Build outputs
 
 | Output | Use |
-|--------|-----|
-| `build/pack/<name>/` | Pack tree: `pack.yml` + `configuration/` + `resourcepack/` |
+|--------|------|
+| `build/pack/<name>/` | Pack tree: `pack.yml` + `configuration/` (emitted from build.pk) + `resourcepack/` |
 | `build/resource_pack.zip` | Client resource pack (fonts/lang/sounds/equipment + static) |
 | `build/cache/font/*.json` | Stable font codepoint allocator cache |
 | `build/report.json` | Machine-readable build summary |

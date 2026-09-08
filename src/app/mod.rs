@@ -301,11 +301,17 @@ impl App {
                 let idx = crate::config::scan_configuration(&Project::configuration_dir(
                     &project.root,
                 ))?;
-                let keys: Vec<_> = idx.sections.keys().cloned().collect();
+                let mut keys: Vec<_> = project.build.contents.keys().cloned().collect();
+                for k in idx.sections.keys() {
+                    if !keys.contains(k) {
+                        keys.push(k.clone());
+                    }
+                }
+                keys.sort();
                 self.status = if keys.is_empty() {
-                    "未扫描到已知配置节".into()
+                    "build.pk 无内容节".into()
                 } else {
-                    format!("配置节: {}", keys.join(", "))
+                    format!("配置节(build.pk): {}", keys.join(", "))
                 };
             }
             3 => {

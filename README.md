@@ -4,10 +4,12 @@ Rust TUI / CLI for authoring **Minecraft resource packs**.
 
 Repository: [CntierTeam/pack-creator](https://github.com/CntierTeam/pack-creator)
 
-Create a **Project** (`build.pk` + `src/main`), edit configuration, then build:
+Create a **Project** (`build.pk` + `src/main`), put **all configuration in `build.pk`**, drop textures under `resourcepack/`, then build:
 
 1. **Pack tree** → `pack.yml` + `configuration/` + `resourcepack/`
-2. **resource_pack.zip** → client resource pack (fonts / lang / sounds / equipment + static assets)
+2. **resource_pack.zip** → client resource pack (fonts / lang / sounds / equipment / item & entity models + static assets)
+
+`src/main/configuration/*.yml` is optional overlay only; **`build.pk` wins** on the same id.
 
 ## Requirements
 
@@ -45,7 +47,7 @@ Binary name: `pack-creator`.
 ```bash
 pack-creator new ./MyPack --name MyPack --namespace mypack
 cd MyPack
-# edit build.pk and src/main/configuration/*.yml
+# edit build.pk — items / images / lang / entities / … all live here
 # put textures under src/main/resourcepack/assets/...
 pack-creator check .
 pack-creator build .
@@ -69,10 +71,10 @@ pack-creator tui
 
 ```text
 MyPack/
-  build.pk                 # Gradle-inspired config + WHOLE mappings
+  build.pk                 # ALL config: meta + mappings + content sections
   src/main/
     pack.yml
-    configuration/         # images, emoji, lang, sounds, items, blocks, ...
+    configuration/         # optional YAML overlays (build.pk wins)
     resourcepack/          # static Minecraft assets
 ```
 
@@ -105,7 +107,43 @@ export {
   packDir = "build/pack"
   resourcePackZip = "build/resource_pack.zip"
 }
+
+items {
+  "mypack:demo_item" {
+    material = "PAPER"
+    model {
+      path = "mypack:item/demo_item"
+      generation {
+        parent = "minecraft:item/generated"
+        textures { layer0 = "mypack:item/demo_item" }
+      }
+    }
+  }
+}
+
+images {
+  "mypack:main_gui" {
+    height = 140
+    ascent = 18
+    font = "minecraft:gui"
+    file = "mypack:font/gui/main_gui.png"
+  }
+}
+
+entityModels {
+  "mypack:demo_cow" {
+    model {
+      path = "mypack:entity/demo_cow"
+      parent = "minecraft:block/block"
+      textures { all = "mypack:entity/demo_cow" }
+    }
+  }
+}
 ```
+
+Content roots (aliases accepted): `items`, `images`, `emojis`, `entityModels`, `lang`, `sounds`, `equipments`, `blocks`, `furniture`, `paintings`, `templates`, `globalVariables`, `recipes`, `categories`, `lootTables`, `gui`.
+
+Quoted keys (`"ns:id"`) and lists (`keywords = [":)", ":hi:"]`) are supported.
 
 `WHOLE` embeds the full `block_state_mappings` table into the pack export (unless you already define that section).
 
@@ -128,7 +166,7 @@ Furniture client visuals reuse **item models** (ItemDisplay is runtime, not zip)
 |---------|---------|
 | `pack-creator` / `tui` | Interactive TUI |
 | `new <path> --name … --namespace …` | Scaffold Project |
-| `check [path]` | Scan configuration sections |
+| `check [path]` | List `build.pk` content sections (+ optional YAML overlays) |
 | `build [path]` | Export pack tree + zip |
 
 ## Releases / CI

@@ -1,6 +1,5 @@
 //! Integration: create Project → check → build → assert pack layout + zip.
 
-use pack_creator::config::scan_configuration;
 use pack_creator::mapping::embedded_whole_mappings_yaml;
 use pack_creator::project::{MappingsMode, Project};
 use pack_creator::{build_project, BuildPk};
@@ -58,7 +57,7 @@ fn create_scaffolds_required_layout() {
     assert_eq!(build.project.namespace, "demopack");
     assert_eq!(build.mappings.mode, MappingsMode::Whole);
 
-    let idx = scan_configuration(&Project::configuration_dir(&root)).unwrap();
+    // All configuration aggregates in build.pk (not scattered YAML scaffolds)
     for required in [
         "images",
         "emojis",
@@ -77,11 +76,18 @@ fn create_scaffolds_required_layout() {
         "entity_models",
     ] {
         assert!(
-            idx.sections.contains_key(required),
-            "missing section {required}; have {:?}",
-            idx.sections.keys().collect::<Vec<_>>()
+            build.contents.contains_key(required),
+            "missing build.pk section {required}; have {:?}",
+            build.contents.keys().collect::<Vec<_>>()
         );
     }
+    assert!(build.contents["items"].contains_key("demopack:demo_item"));
+    assert!(build.contents["images"].contains_key("demopack:main_gui"));
+
+    let text = fs::read_to_string(Project::build_pk_path(&root)).unwrap();
+    assert!(text.contains("items {"));
+    assert!(text.contains("\"demopack:demo_item\""));
+    assert!(!Project::configuration_dir(&root).join("images.yml").is_file());
 
     let _ = fs::remove_dir_all(&root);
 }

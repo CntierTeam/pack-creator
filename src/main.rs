@@ -82,9 +82,13 @@ fn main() -> anyhow::Result<()> {
             ))?;
             println!("project: {}", project.build.project.name);
             println!("mappings: {:?}", project.build.mappings.mode);
-            println!("config files: {}", idx.files.len());
+            println!("build.pk content sections: {}", project.build.contents.len());
+            for (section, entries) in &project.build.contents {
+                println!("  - {section}: {} entr(y/ies)", entries.len());
+            }
+            println!("yaml overlay files: {}", idx.files.len());
             for (section, hits) in &idx.sections {
-                println!("  - {section}: {} hit(s)", hits.len());
+                println!("  - overlay {section}: {} hit(s)", hits.len());
             }
             if !idx.unknown_roots.is_empty() {
                 println!(

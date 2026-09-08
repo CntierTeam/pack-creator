@@ -35,8 +35,21 @@ pub struct BuildReport {
 
 pub fn build_project(project: &Project) -> Result<BuildReport> {
     let conf_dir = Project::configuration_dir(&project.root);
-    let index = scan_configuration(&conf_dir)?;
-    let configs = load_configs(&conf_dir)?;
+    let mut index = scan_configuration(&conf_dir)?;
+    let mut configs = load_configs(&conf_dir)?;
+    // build.pk is the aggregation source of truth (wins over YAML overlays)
+    project.build.apply_to_configs(&mut configs);
+    for section in project.build.contents.keys() {
+        index
+            .sections
+            .entry(section.clone())
+            .or_default()
+            .push(crate::config::SectionHit {
+                file: Project::build_pk_path(&project.root),
+                root_key: section.clone(),
+                canonical: section.clone(),
+            });
+    }
     let cache = project.cache_dir();
     fs::create_dir_all(&cache)?;
     let _mappings = prepare_mappings(&project.build, &cache)?;
@@ -148,10 +161,11 @@ fn export_pack_tree(
     let pack: PackYml = (&project.build).into();
     fs::write(dest.join("pack.yml"), serde_yaml::to_string(&pack)?)?;
 
-    // configuration: copy tree, then ensure WHOLE mappings present
+    // configuration: optional YAML overlays, then emit aggregated build.pk contents
     let conf_src = Project::configuration_dir(&project.root);
     let conf_dst = dest.join("configuration");
     copy_dir_merge(&conf_src, &conf_dst)?;
+    emit_build_pk_configuration(project, &conf_dst)?;
 
     if project.build.mappings.mode == crate::project::MappingsMode::Whole {
         // Emit full block_state_mappings unless user already provided one
@@ -199,6 +213,31 @@ fn export_pack_tree(
     let rp_dst = dest.join("resourcepack");
     copy_dir_merge(&rp_src, &rp_dst)?;
 
+    Ok(())
+}
+
+fn emit_build_pk_configuration(project: &Project, conf_dst: &Path) -> Result<()> {
+    fs::create_dir_all(conf_dst)?;
+    for (section, entries) in &project.build.contents {
+        let file_stem = match section.as_str() {
+            "global-variables" => "global_variables",
+            "loot-tables" => "loot_tables",
+            other => other,
+        };
+        let mut body = serde_yaml::Mapping::new();
+        for (id, v) in entries {
+            body.insert(YamlValue::String(id.clone()), v.clone());
+        }
+        let mut root = serde_yaml::Mapping::new();
+        root.insert(
+            YamlValue::String(section.clone()),
+            YamlValue::Mapping(body),
+        );
+        fs::write(
+            conf_dst.join(format!("{file_stem}.yml")),
+            serde_yaml::to_string(&YamlValue::Mapping(root))?,
+        )?;
+    }
     Ok(())
 }
 
