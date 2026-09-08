@@ -6,5 +6,5 @@ pub mod pack;
 pub mod project;
 
 pub use error::{Error, Result};
-pub use pack::{build_project, BuildReport};
+pub use pack::{build_project, build_project_filtered, BuildReport};
 pub use project::{BuildPk, Project};

@@ -100,12 +100,31 @@ mappings {
 
 pack {
   supportedVersion { min = "1.20.1" max = "1.21.4" }
+  packFormat = 34
+  // modern mcmeta fields (derived from packFormat if omitted)
+  minFormat = [34, 0]
+  maxFormat = [34, 0]
+  supportedFormats {
+    minInclusive = 34
+    maxInclusive = 34
+  }
   features { images = true /* ... */ }
 }
 
 export {
   packDir = "build/pack"
   resourcePackZip = "build/resource_pack.zip"
+  // Optional Asteri-style multi-version outputs:
+  // variants {
+  //   "26_1" { packFormat = 84; resourcePackZip = "build/resource_pack_26_1.zip" }
+  //   "26_2" { packFormat = 88; resourcePackZip = "build/resource_pack_26_2.zip" }
+  // }
+  // defaultVariants = ["26_1", "26_2"]
+}
+
+zip {
+  method = DEFLATED   // or STORED
+  level = 6           // 0..=9
 }
 
 items {
@@ -147,6 +166,31 @@ Quoted keys (`"ns:id"`) and lists (`keywords = [":)", ":hi:"]`) are supported.
 
 `WHOLE` embeds the full `block_state_mappings` table into the pack export (unless you already define that section).
 
+### Multi-version export (26.2 etc.)
+
+Define `export.variants` so each Minecraft line gets its own ZIP + `pack.mcmeta` formats (same idea as AsteriResourcePack):
+
+| Variant key | Typical `packFormat` | Notes |
+|-------------|----------------------|-------|
+| `1_21_8` | 64 | |
+| `26_1` | 84 | |
+| `26_2` | **88** | Minecraft **26.2** |
+
+`26.2` in DSL/`--variant` is normalized to `26_2`. Optional per-variant assets: `src/main/resourcepack/overlays/<name>/` (merged into `assets/`, not shipped as runtime overlays).
+
+```bash
+pack-creator build . --variant 26_2
+```
+
+### ZIP compression
+
+```text
+zip {
+  method = DEFLATED  // or STORED
+  level = 6          // 0..=9, default 6
+}
+```
+
 ## What the local zip includes
 
 | Included now | Notes |
@@ -166,8 +210,8 @@ Furniture client visuals reuse **item models** (ItemDisplay is runtime, not zip)
 |---------|---------|
 | `pack-creator` / `tui` | Interactive TUI |
 | `new <path> --name … --namespace …` | Scaffold Project |
-| `check [path]` | List `build.pk` content sections (+ optional YAML overlays) |
-| `build [path]` | Export pack tree + zip |
+| `check [path]` | List `build.pk` content sections, variants, zip settings |
+| `build [path] [--variant NAME]…` | Export pack tree + one or more zips |
 
 ## Releases / CI
 

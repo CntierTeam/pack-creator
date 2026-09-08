@@ -94,6 +94,9 @@ Content roots (aliases accepted): `images`, `emojis`, `items`, `blocks`, `entity
 - `WHOLE`: on build, emit full `block_state_mappings.yml` unless the Project already defines that section.
 - `CUSTOM`: skip embedding the whole table.
 - Quoted keys (`"ns:id"`) and lists (`keywords = [":)", ":hi:"]`) are supported.
+- `export.variants` → one ZIP per Minecraft line (`26_2` = pack_format **88** for 26.2). Keys may use `26.2`; normalized to `26_2`.
+- `zip { method = DEFLATED; level = 6 }` controls native ZIP compression (0..=9).
+- Optional assets: `src/main/resourcepack/overlays/<variant>/` merged into that variant’s zip.
 
 ## Configuration section aliases (YAML overlays)
 

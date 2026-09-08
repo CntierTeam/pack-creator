@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value as YamlValue;
 use std::collections::BTreeMap;
 
-const META_ROOTS: &[&str] = &["project", "mappings", "pack", "export"];
+const META_ROOTS: &[&str] = &["project", "mappings", "pack", "export", "zip"];
 
 /// Content section root name in build.pk → canonical LoadedConfigs key.
 const CONTENT_ROOTS: &[(&str, &str)] = &[
@@ -55,9 +55,126 @@ pub struct BuildPk {
     pub mappings: MappingsConfig,
     pub pack: PackConfig,
     pub export: ExportConfig,
+    #[serde(default)]
+    pub zip: ZipConfig,
     /// Aggregated content: canonical section → id → yaml mapping/value.
     #[serde(default)]
     pub contents: BTreeMap<String, BTreeMap<String, YamlValue>>,
+}
+
+/// Inclusive pack format range written to `supported_formats` in pack.mcmeta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FormatRange {
+    pub min_inclusive: u32,
+    pub max_inclusive: u32,
+}
+
+impl FormatRange {
+    pub fn single(pf: u32) -> Self {
+        Self {
+            min_inclusive: pf,
+            max_inclusive: pf,
+        }
+    }
+}
+
+impl Default for FormatRange {
+    fn default() -> Self {
+        FormatRange::single(default_pack_format())
+    }
+}
+
+/// Per-Minecraft-version zip target (Asteri-style variants).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariantExport {
+    #[serde(default = "default_pack_format")]
+    pub pack_format: u32,
+    #[serde(default = "default_min_format")]
+    pub min_format: [u32; 2],
+    #[serde(default = "default_max_format")]
+    pub max_format: [u32; 2],
+    #[serde(default = "default_supported_formats")]
+    pub supported_formats: FormatRange,
+    pub resource_pack_zip: String,
+    /// Overlay dirs under `src/main/resourcepack/overlays/<name>/` to merge.
+    #[serde(default)]
+    pub overlays: Vec<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+impl VariantExport {
+    pub fn from_pack_format(pf: u32, zip: impl Into<String>) -> Self {
+        Self {
+            pack_format: pf,
+            min_format: [pf, 0],
+            max_format: [pf, 0],
+            supported_formats: FormatRange::single(pf),
+            resource_pack_zip: zip.into(),
+            overlays: Vec::new(),
+            description: None,
+        }
+    }
+
+    pub fn sync_formats_from_pack_format(&mut self) {
+        self.min_format = [self.pack_format, 0];
+        self.max_format = [self.pack_format, 0];
+        self.supported_formats = FormatRange::single(self.pack_format);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ZipMethod {
+    #[default]
+    Deflated,
+    Stored,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZipConfig {
+    #[serde(default)]
+    pub method: ZipMethod,
+    /// DEFLATE level 0..=9 (ignored for STORED). Default 6 (Asteri fallback).
+    #[serde(default = "default_zip_level")]
+    pub level: u8,
+}
+
+fn default_zip_level() -> u8 {
+    6
+}
+
+impl Default for ZipConfig {
+    fn default() -> Self {
+        Self {
+            method: ZipMethod::Deflated,
+            level: default_zip_level(),
+        }
+    }
+}
+
+impl ZipConfig {
+    pub fn clamped_level(&self) -> i64 {
+        i64::from(self.level.min(9))
+    }
+}
+
+/// Resolved zip target used by the build loop.
+#[derive(Debug, Clone)]
+pub struct ResolvedPackTarget {
+    pub name: String,
+    pub pack_format: u32,
+    pub min_format: [u32; 2],
+    pub max_format: [u32; 2],
+    pub supported_formats: FormatRange,
+    pub resource_pack_zip: String,
+    pub overlays: Vec<String>,
+    pub description: Option<String>,
+}
+
+/// Normalize variant keys: `26.2` → `26_2`.
+pub fn normalize_variant_key(name: &str) -> String {
+    name.trim().replace('.', "_")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,10 +290,33 @@ pub struct PackConfig {
     pub description: String,
     #[serde(default = "default_pack_format")]
     pub pack_format: u32,
+    #[serde(default = "default_min_format")]
+    pub min_format: [u32; 2],
+    #[serde(default = "default_max_format")]
+    pub max_format: [u32; 2],
+    #[serde(default = "default_supported_formats")]
+    pub supported_formats: FormatRange,
 }
 
 fn default_pack_format() -> u32 {
     34
+}
+fn default_min_format() -> [u32; 2] {
+    [default_pack_format(), 0]
+}
+fn default_max_format() -> [u32; 2] {
+    [default_pack_format(), 0]
+}
+fn default_supported_formats() -> FormatRange {
+    FormatRange::single(default_pack_format())
+}
+
+impl PackConfig {
+    pub fn sync_formats_from_pack_format(&mut self) {
+        self.min_format = [self.pack_format, 0];
+        self.max_format = [self.pack_format, 0];
+        self.supported_formats = FormatRange::single(self.pack_format);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,23 +402,18 @@ impl Default for FeatureFlags {
     }
 }
 
-impl Default for PackConfig {
-    fn default() -> Self {
-        Self {
-            supported_version: SupportedVersion::default(),
-            features: FeatureFlags::default(),
-            description: String::new(),
-            pack_format: default_pack_format(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportConfig {
     #[serde(default = "default_pack_dir")]
     pub pack_dir: String,
     #[serde(default = "default_zip_out")]
     pub resource_pack_zip: String,
+    /// Named Minecraft-version outputs; empty = single zip from `resource_pack_zip`.
+    #[serde(default)]
+    pub variants: IndexMap<String, VariantExport>,
+    /// Built when `build` has no `--variant` filter. Empty = all variant keys.
+    #[serde(default)]
+    pub default_variants: Vec<String>,
 }
 
 fn default_pack_dir() -> String {
@@ -293,6 +428,22 @@ impl Default for ExportConfig {
         Self {
             pack_dir: default_pack_dir(),
             resource_pack_zip: default_zip_out(),
+            variants: IndexMap::new(),
+            default_variants: Vec::new(),
+        }
+    }
+}
+
+impl Default for PackConfig {
+    fn default() -> Self {
+        Self {
+            supported_version: SupportedVersion::default(),
+            features: FeatureFlags::default(),
+            description: String::new(),
+            pack_format: default_pack_format(),
+            min_format: default_min_format(),
+            max_format: default_max_format(),
+            supported_formats: default_supported_formats(),
         }
     }
 }
@@ -311,6 +462,7 @@ impl Default for BuildPk {
             mappings: MappingsConfig::default(),
             pack: PackConfig::default(),
             export: ExportConfig::default(),
+            zip: ZipConfig::default(),
             contents: BTreeMap::new(),
         }
     }
@@ -328,6 +480,72 @@ impl BuildPk {
 
     pub fn parse(source: &str) -> Result<Self> {
         parse_build_pk(source)
+    }
+
+    /// Resolve which zip targets to build (`filter` empty → defaultVariants / all / single).
+    pub fn resolve_pack_targets(&self, filter: &[String]) -> Result<Vec<ResolvedPackTarget>> {
+        if self.export.variants.is_empty() {
+            if !filter.is_empty() {
+                return Err(Error::BuildPk(
+                    "build.pk has no export.variants; cannot filter with --variant".into(),
+                ));
+            }
+            return Ok(vec![ResolvedPackTarget {
+                name: "default".into(),
+                pack_format: self.pack.pack_format,
+                min_format: self.pack.min_format,
+                max_format: self.pack.max_format,
+                supported_formats: self.pack.supported_formats,
+                resource_pack_zip: self.export.resource_pack_zip.clone(),
+                overlays: Vec::new(),
+                description: None,
+            }]);
+        }
+
+        let wanted: Vec<String> = if filter.is_empty() {
+            if self.export.default_variants.is_empty() {
+                self.export.variants.keys().cloned().collect()
+            } else {
+                self.export
+                    .default_variants
+                    .iter()
+                    .map(|s| normalize_variant_key(s))
+                    .collect()
+            }
+        } else {
+            filter.iter().map(|s| normalize_variant_key(s)).collect()
+        };
+
+        let mut out = Vec::new();
+        for key in wanted {
+            let Some(v) = self.export.variants.get(&key) else {
+                return Err(Error::BuildPk(format!(
+                    "unknown export variant `{key}` (known: {})",
+                    self.export
+                        .variants
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )));
+            };
+            let overlays = if v.overlays.is_empty() {
+                vec![key.clone()]
+            } else {
+                v.overlays.clone()
+            };
+            out.push(ResolvedPackTarget {
+                name: key,
+                pack_format: v.pack_format,
+                min_format: v.min_format,
+                max_format: v.max_format,
+                supported_formats: v.supported_formats,
+                resource_pack_zip: v.resource_pack_zip.clone(),
+                overlays,
+                description: v.description.clone(),
+            });
+        }
+        Ok(out)
     }
 
     /// Merge aggregated build.pk contents into LoadedConfigs (build.pk wins).
@@ -479,6 +697,12 @@ pack {{
     max = "{max}"
   }}
   packFormat = {pf}
+  minFormat = [{min_f0}, {min_f1}]
+  maxFormat = [{max_f0}, {max_f1}]
+  supportedFormats {{
+    minInclusive = {sf_min}
+    maxInclusive = {sf_max}
+  }}
   description = "{pdesc}"
   features {{
     images = {images}
@@ -503,6 +727,11 @@ pack {{
 export {{
   packDir = "{pack_dir}"
   resourcePackZip = "{zip}"
+{variants_block}{default_variants_block}}}
+
+zip {{
+  method = {zip_method}
+  level = {zip_level}
 }}
 {content}"#,
             name = escape(&self.project.name),
@@ -524,6 +753,12 @@ export {{
             min = escape(&self.pack.supported_version.min),
             max = escape(&self.pack.supported_version.max),
             pf = self.pack.pack_format,
+            min_f0 = self.pack.min_format[0],
+            min_f1 = self.pack.min_format[1],
+            max_f0 = self.pack.max_format[0],
+            max_f1 = self.pack.max_format[1],
+            sf_min = self.pack.supported_formats.min_inclusive,
+            sf_max = self.pack.supported_formats.max_inclusive,
             pdesc = escape(&self.pack.description),
             images = f.images,
             emoji = f.emoji,
@@ -543,9 +778,75 @@ export {{
             entities = f.entities,
             pack_dir = escape(&self.export.pack_dir),
             zip = escape(&self.export.resource_pack_zip),
+            variants_block = render_variants_block(&self.export),
+            default_variants_block = render_default_variants(&self.export),
+            zip_method = match self.zip.method {
+                ZipMethod::Deflated => "DEFLATED",
+                ZipMethod::Stored => "STORED",
+            },
+            zip_level = self.zip.level.min(9),
             content = content,
         )
     }
+}
+
+fn render_variants_block(export: &ExportConfig) -> String {
+    if export.variants.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("  variants {\n");
+    for (name, v) in &export.variants {
+        out.push_str(&format!("    \"{}\" {{\n", escape(name)));
+        out.push_str(&format!("      packFormat = {}\n", v.pack_format));
+        out.push_str(&format!(
+            "      minFormat = [{}, {}]\n",
+            v.min_format[0], v.min_format[1]
+        ));
+        out.push_str(&format!(
+            "      maxFormat = [{}, {}]\n",
+            v.max_format[0], v.max_format[1]
+        ));
+        out.push_str("      supportedFormats {\n");
+        out.push_str(&format!(
+            "        minInclusive = {}\n",
+            v.supported_formats.min_inclusive
+        ));
+        out.push_str(&format!(
+            "        maxInclusive = {}\n",
+            v.supported_formats.max_inclusive
+        ));
+        out.push_str("      }\n");
+        out.push_str(&format!(
+            "      resourcePackZip = \"{}\"\n",
+            escape(&v.resource_pack_zip)
+        ));
+        if !v.overlays.is_empty() {
+            let parts: Vec<String> = v
+                .overlays
+                .iter()
+                .map(|o| format!("\"{}\"", escape(o)))
+                .collect();
+            out.push_str(&format!("      overlays = [{}]\n", parts.join(", ")));
+        }
+        if let Some(desc) = &v.description {
+            out.push_str(&format!("      description = \"{}\"\n", escape(desc)));
+        }
+        out.push_str("    }\n");
+    }
+    out.push_str("  }\n");
+    out
+}
+
+fn render_default_variants(export: &ExportConfig) -> String {
+    if export.default_variants.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<String> = export
+        .default_variants
+        .iter()
+        .map(|v| format!("\"{}\"", escape(v)))
+        .collect();
+    format!("  defaultVariants = [{}]\n", parts.join(", "))
 }
 
 fn yaml_scalar_string(v: &YamlValue) -> Option<String> {
@@ -1248,6 +1549,73 @@ fn as_u32(v: &Value) -> Result<u32> {
     }
 }
 
+fn as_u32_pair(v: &Value) -> Result<[u32; 2]> {
+    match v {
+        Value::List(items) if items.len() == 2 => Ok([as_u32(&items[0])?, as_u32(&items[1])?]),
+        Value::Int(i) if *i >= 0 => Ok([*i as u32, 0]),
+        _ => Err(Error::BuildPk("expected [major, minor] format pair".into())),
+    }
+}
+
+fn as_string_list(v: &Value) -> Result<Vec<String>> {
+    match v {
+        Value::List(items) => items.iter().map(as_str).collect(),
+        other => Ok(vec![as_str(other)?]),
+    }
+}
+
+fn parse_format_fields(
+    m: &IndexMap<String, Value>,
+    pack_format: &mut u32,
+    min_format: &mut [u32; 2],
+    max_format: &mut [u32; 2],
+    supported: &mut FormatRange,
+) -> Result<()> {
+    let mut pf_set = false;
+    let mut min_set = false;
+    let mut max_set = false;
+    let mut sf_min_set = false;
+    let mut sf_max_set = false;
+    if let Some(v) = m.get("packFormat") {
+        *pack_format = as_u32(v)?;
+        pf_set = true;
+    }
+    if let Some(v) = m.get("minFormat") {
+        *min_format = as_u32_pair(v)?;
+        min_set = true;
+    }
+    if let Some(v) = m.get("maxFormat") {
+        *max_format = as_u32_pair(v)?;
+        max_set = true;
+    }
+    if let Some(sf) = m.get("supportedFormats") {
+        let s = block(sf)?;
+        if let Some(v) = s.get("minInclusive") {
+            supported.min_inclusive = as_u32(v)?;
+            sf_min_set = true;
+        }
+        if let Some(v) = s.get("maxInclusive") {
+            supported.max_inclusive = as_u32(v)?;
+            sf_max_set = true;
+        }
+    }
+    if pf_set {
+        if !min_set {
+            *min_format = [*pack_format, 0];
+        }
+        if !max_set {
+            *max_format = [*pack_format, 0];
+        }
+        if !sf_min_set {
+            supported.min_inclusive = *pack_format;
+        }
+        if !sf_max_set {
+            supported.max_inclusive = *pack_format;
+        }
+    }
+    Ok(())
+}
+
 fn block<'a>(v: &'a Value) -> Result<&'a IndexMap<String, Value>> {
     match v {
         Value::Block(m) => Ok(m),
@@ -1406,9 +1774,13 @@ fn parse_build_pk(source: &str) -> Result<BuildPk> {
 
     if let Some(pack) = root.get("pack") {
         let m = block(pack)?;
-        if let Some(v) = m.get("packFormat") {
-            out.pack.pack_format = as_u32(v)?;
-        }
+        parse_format_fields(
+            m,
+            &mut out.pack.pack_format,
+            &mut out.pack.min_format,
+            &mut out.pack.max_format,
+            &mut out.pack.supported_formats,
+        )?;
         if let Some(v) = m.get("description") {
             out.pack.description = as_str(v)?;
         }
@@ -1457,6 +1829,64 @@ fn parse_build_pk(source: &str) -> Result<BuildPk> {
         }
         if let Some(v) = m.get("resourcePackZip") {
             out.export.resource_pack_zip = as_str(v)?;
+        }
+        if let Some(v) = m.get("defaultVariants") {
+            out.export.default_variants = as_string_list(v)?
+                .into_iter()
+                .map(|s| normalize_variant_key(&s))
+                .collect();
+        }
+        if let Some(variants) = m.get("variants") {
+            let vb = block(variants)?;
+            for (raw_key, val) in vb {
+                if raw_key.starts_with("__call_") {
+                    continue;
+                }
+                let key = normalize_variant_key(raw_key);
+                let body = block(val)?;
+                let mut ve = VariantExport::from_pack_format(
+                    out.pack.pack_format,
+                    format!("build/resource_pack_{key}.zip"),
+                );
+                parse_format_fields(
+                    body,
+                    &mut ve.pack_format,
+                    &mut ve.min_format,
+                    &mut ve.max_format,
+                    &mut ve.supported_formats,
+                )?;
+                if let Some(v) = body.get("resourcePackZip") {
+                    ve.resource_pack_zip = as_str(v)?;
+                }
+                if let Some(v) = body.get("overlays") {
+                    ve.overlays = as_string_list(v)?;
+                }
+                if let Some(v) = body.get("description") {
+                    ve.description = Some(as_str(v)?);
+                }
+                out.export.variants.insert(key, ve);
+            }
+        }
+    }
+
+    if let Some(zip) = root.get("zip") {
+        let m = block(zip)?;
+        if let Some(v) = m.get("method") {
+            let s = as_str(v)?;
+            out.zip.method = match s.to_ascii_uppercase().as_str() {
+                "DEFLATED" | "DEFLATE" => ZipMethod::Deflated,
+                "STORED" | "STORE" | "NONE" => ZipMethod::Stored,
+                other => {
+                    return Err(Error::BuildPk(format!("unknown zip.method: {other}")))
+                }
+            };
+        }
+        if let Some(v) = m.get("level") {
+            let level = as_u32(v)?;
+            if level > 9 {
+                return Err(Error::BuildPk("zip.level must be 0..=9".into()));
+            }
+            out.zip.level = level as u8;
         }
     }
 
@@ -1530,5 +1960,43 @@ emojis {
         assert!(b.contents["items"].contains_key("ns:sword"));
         let emoji = &b.contents["emojis"]["ns:hi"];
         assert!(matches!(emoji["keywords"], YamlValue::Sequence(_)));
+    }
+
+    #[test]
+    fn variants_normalize_dot_keys_and_zip_level() {
+        let src = r#"
+project { name = "p" namespace = "ns" }
+pack { packFormat = 34 }
+export {
+  resourcePackZip = "build/resource_pack.zip"
+  variants {
+    "26.2" {
+      packFormat = 88
+      resourcePackZip = "build/resource_pack_26_2.zip"
+    }
+    "26_1" {
+      packFormat = 84
+      resourcePackZip = "build/resource_pack_26_1.zip"
+      overlays = ["26_1"]
+    }
+  }
+  defaultVariants = ["26.2", "26_1"]
+}
+zip {
+  method = DEFLATED
+  level = 9
+}
+"#;
+        let b = BuildPk::parse(src).unwrap();
+        assert!(b.export.variants.contains_key("26_2"));
+        assert_eq!(b.export.variants["26_2"].pack_format, 88);
+        assert_eq!(b.export.variants["26_2"].min_format, [88, 0]);
+        assert_eq!(b.export.variants["26_2"].supported_formats.max_inclusive, 88);
+        assert_eq!(b.export.default_variants, vec!["26_2", "26_1"]);
+        assert_eq!(b.zip.level, 9);
+        let targets = b.resolve_pack_targets(&[]).unwrap();
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].name, "26_2");
+        assert_eq!(targets[0].pack_format, 88);
     }
 }

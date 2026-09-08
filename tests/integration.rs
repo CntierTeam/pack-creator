@@ -254,7 +254,7 @@ fn custom_mappings_mode_skips_whole_block_table() {
 }
 
 #[test]
-fn zip_pack_mcmeta_has_pack_format() {
+fn zip_pack_mcmeta_has_modern_format_fields() {
     let root = unique_dir("mcmeta");
     let project = Project::create(&root, "Meta", "meta").unwrap();
     let report = build_project(&project).unwrap();
@@ -268,6 +268,66 @@ fn zip_pack_mcmeta_has_pack_format() {
         json["pack"]["pack_format"].as_u64().unwrap(),
         u64::from(project.build.pack.pack_format)
     );
+    assert_eq!(
+        json["pack"]["supported_formats"]["min_inclusive"]
+            .as_u64()
+            .unwrap(),
+        u64::from(project.build.pack.supported_formats.min_inclusive)
+    );
+    assert_eq!(
+        json["pack"]["min_format"][0].as_u64().unwrap(),
+        u64::from(project.build.pack.min_format[0])
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn multi_variant_writes_separate_zips() {
+    let root = unique_dir("multi-var");
+    let project = Project::create(&root, "Multi", "multi").unwrap();
+    let mut build = project.build.clone();
+    build.export.variants.insert(
+        "26_1".into(),
+        pack_creator::project::VariantExport::from_pack_format(
+            84,
+            "build/resource_pack_26_1.zip",
+        ),
+    );
+    build.export.variants.insert(
+        "26_2".into(),
+        pack_creator::project::VariantExport::from_pack_format(
+            88,
+            "build/resource_pack_26_2.zip",
+        ),
+    );
+    build.export.default_variants = vec!["26_1".into(), "26_2".into()];
+    build.zip.level = 1;
+    fs::write(Project::build_pk_path(&root), build.render_dsl()).unwrap();
+
+    let project = Project::open(&root).unwrap();
+    let report = build_project(&project).unwrap();
+    assert_eq!(report.resource_pack_zips.len(), 2);
+    assert!(root.join("build/resource_pack_26_1.zip").is_file());
+    assert!(root.join("build/resource_pack_26_2.zip").is_file());
+
+    for (name, expect_fmt) in [("26_1", 84u64), ("26_2", 88u64)] {
+        let zip = root.join(format!("build/resource_pack_{name}.zip"));
+        let f = fs::File::open(&zip).unwrap();
+        let mut archive = ZipArchive::new(f).unwrap();
+        let mut entry = archive.by_name("pack.mcmeta").unwrap();
+        let mut text = String::new();
+        entry.read_to_string(&mut text).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["pack"]["pack_format"].as_u64().unwrap(), expect_fmt);
+        assert_eq!(
+            json["pack"]["max_format"][0].as_u64().unwrap(),
+            expect_fmt
+        );
+    }
+
+    let filtered =
+        pack_creator::build_project_filtered(&project, &["26.2".into()]).unwrap();
+    assert_eq!(filtered.variants_built, vec!["26_2".to_string()]);
     let _ = fs::remove_dir_all(&root);
 }
 

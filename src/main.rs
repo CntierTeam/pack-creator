@@ -1,7 +1,7 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use pack_creator::app::App;
-use pack_creator::{build_project, Project};
+use pack_creator::{build_project_filtered, Project};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -24,11 +24,14 @@ enum Commands {
         #[arg(long)]
         namespace: String,
     },
-    /// Build pack tree + resource_pack.zip
+    /// Build pack tree + resource_pack.zip (one or more variants)
     Build {
         /// Project root (contains build.pk)
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// Build only these export.variants (repeatable). Accepts `26.2` or `26_2`.
+        #[arg(long = "variant", value_name = "NAME")]
+        variants: Vec<String>,
     },
     /// Validate project layout and scan configuration sections
     Check {
@@ -57,12 +60,19 @@ fn main() -> anyhow::Result<()> {
                 project.build.project.namespace
             );
         }
-        Commands::Build { path } => {
+        Commands::Build { path, variants } => {
             let project = Project::open(&path)
                 .with_context(|| format!("open project at {}", path.display()))?;
-            let report = build_project(&project).context("build failed")?;
+            let report = build_project_filtered(&project, &variants).context("build failed")?;
             println!("pack dir: {}", report.pack_dir.display());
-            println!("ZIP:      {}", report.resource_pack_zip.display());
+            if report.resource_pack_zips.len() <= 1 {
+                println!("ZIP:      {}", report.resource_pack_zip.display());
+            } else {
+                println!("ZIPs:");
+                for (name, zip) in report.variants_built.iter().zip(&report.resource_pack_zips) {
+                    println!("  - {name}: {}", zip.display());
+                }
+            }
             println!(
                 "sections={} fonts={} langs={} sounds={} items={} entities={} copied={}",
                 report.sections.len(),
@@ -82,6 +92,37 @@ fn main() -> anyhow::Result<()> {
             ))?;
             println!("project: {}", project.build.project.name);
             println!("mappings: {:?}", project.build.mappings.mode);
+            println!(
+                "pack_format: {} (min={:?} max={:?})",
+                project.build.pack.pack_format,
+                project.build.pack.min_format,
+                project.build.pack.max_format
+            );
+            println!(
+                "zip: method={:?} level={}",
+                project.build.zip.method,
+                project.build.zip.level
+            );
+            if project.build.export.variants.is_empty() {
+                println!(
+                    "export: single → {}",
+                    project.build.export.resource_pack_zip
+                );
+            } else {
+                println!("export variants:");
+                for (name, v) in &project.build.export.variants {
+                    println!(
+                        "  - {name}: format={} → {}",
+                        v.pack_format, v.resource_pack_zip
+                    );
+                }
+                if !project.build.export.default_variants.is_empty() {
+                    println!(
+                        "defaultVariants: {}",
+                        project.build.export.default_variants.join(", ")
+                    );
+                }
+            }
             println!("build.pk content sections: {}", project.build.contents.len());
             for (section, entries) in &project.build.contents {
                 println!("  - {section}: {} entr(y/ies)", entries.len());

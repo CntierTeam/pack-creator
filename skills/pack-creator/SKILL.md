@@ -25,9 +25,10 @@ Repo: https://github.com/CntierTeam/pack-creator
 2. Prefer the **pack-creator binary** over re-implementing packing in ad-hoc scripts.
 3. **All pack config aggregates in `build.pk`** (items/images/gui/entities/…). YAML under `configuration/` is optional overlay; `build.pk` wins.
 4. `mappings.mode = WHOLE` embeds the full `block_state_mappings` table on pack export.
-5. Local zip generates fonts (incl. GUI), lang, sounds, equipment, **item models**, **entity model/texture replace**, and static assets.
-6. On fuseblk mounts (e.g. `/projectsDir`), keep Cargo artifacts on a native FS (`CARGO_TARGET_DIR`).
-7. Code/comments in English; user-facing replies follow the user’s language.
+5. Use `export.variants` for multi-version zips (`26_2` → pack_format 88); `zip { level = N }` for compression; `pack.mcmeta` always includes min/max/supported_formats.
+6. Local zip generates fonts (incl. GUI), lang, sounds, equipment, **item models**, **entity model/texture replace**, and static assets.
+7. On fuseblk mounts (e.g. `/projectsDir`), keep Cargo artifacts on a native FS (`CARGO_TARGET_DIR`).
+8. Code/comments in English; user-facing replies follow the user’s language.
 
 ## Resolve the binary
 

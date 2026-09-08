@@ -3,7 +3,7 @@ use crate::error::{Error, Result};
 use crate::mapping::{
     embedded_whole_mappings_yaml, font_allocator, prepare_mappings, IdAllocator,
 };
-use crate::project::{PackYml, Project};
+use crate::project::{PackYml, Project, ResolvedPackTarget, ZipConfig, ZipMethod};
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 use serde_yaml::Value as YamlValue;
 use std::collections::BTreeMap;
@@ -21,6 +21,8 @@ mod models;
 pub struct BuildReport {
     pub pack_dir: PathBuf,
     pub resource_pack_zip: PathBuf,
+    pub resource_pack_zips: Vec<PathBuf>,
+    pub variants_built: Vec<String>,
     pub sections: Vec<String>,
     pub fonts_written: usize,
     pub langs_written: usize,
@@ -34,6 +36,10 @@ pub struct BuildReport {
 }
 
 pub fn build_project(project: &Project) -> Result<BuildReport> {
+    build_project_filtered(project, &[])
+}
+
+pub fn build_project_filtered(project: &Project, variant_filter: &[String]) -> Result<BuildReport> {
     let conf_dir = Project::configuration_dir(&project.root);
     let mut index = scan_configuration(&conf_dir)?;
     let mut configs = load_configs(&conf_dir)?;
@@ -54,6 +60,7 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
     fs::create_dir_all(&cache)?;
     let _mappings = prepare_mappings(&project.build, &cache)?;
 
+    let targets = project.build.resolve_pack_targets(variant_filter)?;
     let pack_out = project.root.join(&project.build.export.pack_dir);
     let pack_name = &project.build.project.name;
     let pack_root = pack_out.join(pack_name);
@@ -67,7 +74,9 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
 
     let mut report = BuildReport {
         pack_dir: pack_root.clone(),
-        resource_pack_zip: project.root.join(&project.build.export.resource_pack_zip),
+        resource_pack_zip: PathBuf::new(),
+        resource_pack_zips: Vec::new(),
+        variants_built: Vec::new(),
         sections: index.sections.keys().cloned().collect(),
         fonts_written: 0,
         langs_written: 0,
@@ -80,9 +89,11 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
         entity_texture_replacements: 0,
     };
 
-    report.files_copied = copy_dir_merge(
+    // Base resourcepack without overlays/ (merged per variant)
+    report.files_copied = copy_dir_merge_skip(
         &Project::resourcepack_dir(&project.root),
         &staging,
+        &["overlays"],
     )?;
 
     if project.build.pack.features.images || project.build.pack.features.gui {
@@ -112,19 +123,58 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
         report.entity_texture_replacements = ent_stats.entity_texture_replacements;
     }
 
-    write_pack_mcmeta(project, &staging)?;
+    for target in &targets {
+        let zip_path = project.root.join(&target.resource_pack_zip);
+        let variant_staging = if targets.len() == 1 && target.overlays.is_empty() {
+            write_pack_mcmeta_for_target(project, target, &staging)?;
+            staging.clone()
+        } else {
+            let vs = project
+                .root
+                .join("build")
+                .join(format!("staging_rp_{}", target.name));
+            if vs.exists() {
+                fs::remove_dir_all(&vs)?;
+            }
+            copy_dir_merge(&staging, &vs)?;
+            merge_variant_overlays(project, target, &vs)?;
+            write_pack_mcmeta_for_target(project, target, &vs)?;
+            vs
+        };
 
-    if let Some(parent) = report.resource_pack_zip.parent() {
-        fs::create_dir_all(parent)?;
+        if let Some(parent) = zip_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        zip_directory(&variant_staging, &zip_path, &project.build.zip)?;
+        report.resource_pack_zips.push(zip_path);
+        report.variants_built.push(target.name.clone());
     }
-    zip_directory(&staging, &report.resource_pack_zip)?;
 
-    // also write a machine-readable build summary
+    report.resource_pack_zip = report
+        .resource_pack_zips
+        .first()
+        .cloned()
+        .unwrap_or_else(|| project.root.join(&project.build.export.resource_pack_zip));
+
+    // Keep base staging pack.mcmeta aligned with first/default target for pack tree consumers
+    if let Some(first) = targets.first() {
+        write_pack_mcmeta_for_target(project, first, &staging)?;
+    }
+
     let summary = json!({
         "project": pack_name,
         "namespace": project.build.project.namespace,
         "pack_dir": report.pack_dir,
         "resource_pack_zip": report.resource_pack_zip,
+        "resource_pack_zips": report.resource_pack_zips,
+        "variants_built": report.variants_built,
+        "zip": {
+            "method": match project.build.zip.method {
+                ZipMethod::Deflated => "DEFLATED",
+                ZipMethod::Stored => "STORED",
+            },
+            "level": project.build.zip.level.min(9),
+        },
         "sections": report.sections,
         "fonts_written": report.fonts_written,
         "langs_written": report.langs_written,
@@ -146,6 +196,21 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
     )?;
 
     Ok(report)
+}
+
+fn merge_variant_overlays(
+    project: &Project,
+    target: &ResolvedPackTarget,
+    staging: &Path,
+) -> Result<()> {
+    let overlays_root = Project::resourcepack_dir(&project.root).join("overlays");
+    for name in &target.overlays {
+        let src = overlays_root.join(name);
+        if src.is_dir() {
+            copy_dir_merge(&src, staging)?;
+        }
+    }
+    Ok(())
 }
 
 fn export_pack_tree(
@@ -242,6 +307,10 @@ fn emit_build_pk_configuration(project: &Project, conf_dst: &Path) -> Result<()>
 }
 
 fn copy_dir_merge(src: &Path, dst: &Path) -> Result<usize> {
+    copy_dir_merge_skip(src, dst, &[])
+}
+
+fn copy_dir_merge_skip(src: &Path, dst: &Path, skip_top: &[&str]) -> Result<usize> {
     if !src.exists() {
         return Ok(0);
     }
@@ -252,6 +321,12 @@ fn copy_dir_merge(src: &Path, dst: &Path) -> Result<usize> {
             continue;
         }
         let rel = path.strip_prefix(src).unwrap();
+        if let Some(first) = rel.components().next() {
+            let name = first.as_os_str().to_string_lossy();
+            if skip_top.iter().any(|s| *s == name) {
+                continue;
+            }
+        }
         let target = dst.join(rel);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
@@ -612,16 +687,34 @@ fn write_equipment_json(id: &str, value: &YamlValue, staging: &Path) -> Result<(
     Ok(())
 }
 
-fn write_pack_mcmeta(project: &Project, staging: &Path) -> Result<()> {
-    let desc = if project.build.pack.description.is_empty() {
+fn write_pack_mcmeta_for_target(
+    project: &Project,
+    target: &ResolvedPackTarget,
+    staging: &Path,
+) -> Result<()> {
+    let base = if project.build.pack.description.is_empty() {
         project.build.project.description.clone()
     } else {
         project.build.pack.description.clone()
     };
+    let mut desc = if let Some(custom) = &target.description {
+        custom.clone()
+    } else {
+        strip_minimessage_light(&base)
+    };
+    if target.name != "default" && target.description.is_none() {
+        desc = format!("{desc}\n§8[{}]", target.name);
+    }
     let doc = json!({
         "pack": {
-            "pack_format": project.build.pack.pack_format,
-            "description": strip_minimessage_light(&desc)
+            "description": desc,
+            "pack_format": target.pack_format,
+            "supported_formats": {
+                "min_inclusive": target.supported_formats.min_inclusive,
+                "max_inclusive": target.supported_formats.max_inclusive
+            },
+            "min_format": target.min_format,
+            "max_format": target.max_format
         }
     });
     fs::write(
@@ -657,15 +750,22 @@ fn yaml_to_json(v: &YamlValue) -> Result<JsonValue> {
     Ok(json)
 }
 
-fn zip_directory(src: &Path, dst: &Path) -> Result<()> {
+fn zip_directory(src: &Path, dst: &Path, zip_cfg: &ZipConfig) -> Result<()> {
     let file = fs::File::create(dst)?;
     let mut zip = ZipWriter::new(file);
-    let options = SimpleFileOptions::default()
-        .compression_method(CompressionMethod::Deflated)
+    let method = match zip_cfg.method {
+        ZipMethod::Deflated => CompressionMethod::Deflated,
+        ZipMethod::Stored => CompressionMethod::Stored,
+    };
+    let mut options = SimpleFileOptions::default()
+        .compression_method(method)
         .last_modified_time(
             zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0)
                 .unwrap_or_else(|_| zip::DateTime::default_for_write()),
         );
+    if matches!(zip_cfg.method, ZipMethod::Deflated) {
+        options = options.compression_level(Some(zip_cfg.clamped_level()));
+    }
 
     for entry in WalkDir::new(src).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
