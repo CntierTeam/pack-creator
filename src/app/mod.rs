@@ -61,7 +61,7 @@ impl App {
         Self {
             screen: Screen::Home,
             should_quit: false,
-            status: "PackCreator — Craft-Engine 材质包 TUI".into(),
+            status: "PackCreator — Minecraft 材质包 TUI".into(),
             input: String::new(),
             pending: Pending::None,
             menu,
@@ -343,7 +343,7 @@ impl App {
                     .bg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw("  Craft-Engine Resource Pack Authoring"),
+            Span::raw("  Minecraft Resource Pack Authoring"),
         ]))
         .block(Block::default().borders(Borders::ALL));
         f.render_widget(title, chunks[0]);
@@ -412,7 +412,7 @@ impl App {
             })
             .unwrap_or_default();
         let items = [
-            "构建 (导出 CE resources + resource_pack.zip)",
+            "构建 (导出 pack 目录 + resource_pack.zip)",
             "查看映射表配置 (WHOLE)",
             "扫描 configuration 节",
             "查看特性开关",
@@ -437,8 +437,8 @@ impl App {
     fn draw_build(&self, f: &mut Frame, area: Rect) {
         let text = if let Some(r) = &self.last_report {
             format!(
-                "构建完成\n\nCE resources:\n  {}\n\nResource pack zip:\n  {}\n\nsections: {}\nfonts: {}  langs: {}  sounds: {}  copied: {}\n\n按 Enter 返回",
-                r.ce_resources.display(),
+                "构建完成\n\nPack dir:\n  {}\n\nResource pack zip:\n  {}\n\nsections: {}\nfonts: {}  langs: {}  sounds: {}  copied: {}\n\n按 Enter 返回",
+                r.pack_dir.display(),
                 r.resource_pack_zip.display(),
                 r.sections.join(", "),
                 r.fonts_written,

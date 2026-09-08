@@ -5,7 +5,7 @@ use pack_creator::{build_project, Project};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "pack-creator", version, about = "Craft-Engine resource pack TUI / CLI")]
+#[command(name = "pack-creator", version, about = "Minecraft resource pack TUI / CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -24,7 +24,7 @@ enum Commands {
         #[arg(long)]
         namespace: String,
     },
-    /// Build CE resources + resource_pack.zip
+    /// Build pack tree + resource_pack.zip
     Build {
         /// Project root (contains build.pk)
         #[arg(default_value = ".")]
@@ -61,8 +61,8 @@ fn main() -> anyhow::Result<()> {
             let project = Project::open(&path)
                 .with_context(|| format!("open project at {}", path.display()))?;
             let report = build_project(&project).context("build failed")?;
-            println!("CE resources: {}", report.ce_resources.display());
-            println!("ZIP:          {}", report.resource_pack_zip.display());
+            println!("pack dir: {}", report.pack_dir.display());
+            println!("ZIP:      {}", report.resource_pack_zip.display());
             println!(
                 "sections={} fonts={} langs={} sounds={} copied={}",
                 report.sections.len(),

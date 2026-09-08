@@ -5,9 +5,9 @@
 | Path | Role |
 |------|------|
 | `build.pk` | Gradle-inspired DSL: project meta, mappings, pack features, export paths |
-| `src/main/configuration/` | Craft-Engine YAML sections (recursive) |
-| `src/main/resourcepack/` | Static Minecraft assets merged into zip / CE resourcepack |
-| `src/main/pack.yml` | Author-facing meta (export also writes CE `pack.yml`) |
+| `src/main/configuration/` | Pack YAML sections (recursive) |
+| `src/main/resourcepack/` | Static Minecraft assets merged into zip / pack tree |
+| `src/main/pack.yml` | Author-facing meta (export also writes `pack.yml`) |
 
 ## build.pk essentials
 
@@ -50,12 +50,12 @@ pack {
 }
 
 export {
-  ceResources = "build/ce-resources"
+  packDir = "build/pack"
   resourcePackZip = "build/resource_pack.zip"
 }
 ```
 
-- `WHOLE`: on build, emit full CE `block_state_mappings.yml` unless the Project already defines that section.
+- `WHOLE`: on build, emit full `block_state_mappings.yml` unless the Project already defines that section.
 - `CUSTOM`: skip embedding the whole table.
 
 ## Configuration section aliases (scan)
@@ -64,13 +64,13 @@ Canonical keys (aliases accepted):
 
 `templates`, `global-variables`, `images`, `emojis`, `lang`, `translations`, `sounds`, `jukebox-songs`, `equipments`, `items`, `blocks`, `block_state_mappings`, `furniture`, `paintings`, `recipes`, `categories`, `loot-tables`, `config_factory`
 
-CE-style suffixes like `lang#items` are treated as `lang`.
+Suffixes like `lang#items` are treated as `lang`.
 
 ## Build outputs
 
 | Output | Use |
 |--------|-----|
-| `build/ce-resources/<name>/` | Drop into `plugins/CraftEngine/resources/` |
+| `build/pack/<name>/` | Pack tree: `pack.yml` + `configuration/` + `resourcepack/` |
 | `build/resource_pack.zip` | Client resource pack (fonts/lang/sounds/equipment + static) |
 | `build/cache/font/*.json` | Stable font codepoint allocator cache |
 | `build/report.json` | Machine-readable build summary |
@@ -79,4 +79,4 @@ CE-style suffixes like `lang#items` are treated as `lang`.
 
 **Does:** merge `resourcepack/`, generate font providers from `images`, offset chars when enabled, client `lang`, `sounds.json`, equipment JSON, `pack.mcmeta`.
 
-**Does not fully replicate CE:** legacy/modern item model overrides, blockstates visual allocation, obfuscation, overlays. Those stay as configuration for Craft-Engine runtime packing.
+**Does not (yet):** full item/block model override generation, visual block-state allocation, overlays, obfuscation. Keep those as configuration for upcoming packers.

@@ -1,4 +1,4 @@
-//! Integration: create Project → check → build → assert CE layout + zip.
+//! Integration: create Project → check → build → assert pack layout + zip.
 
 use pack_creator::config::scan_configuration;
 use pack_creator::mapping::embedded_whole_mappings_yaml;
@@ -95,32 +95,32 @@ fn open_rejects_missing_build_pk() {
 }
 
 #[test]
-fn build_exports_ce_resources_and_zip() {
+fn build_exports_pack_dir_and_zip() {
     let root = unique_dir("build");
     let project = Project::create(&root, "FullPack", "fullpk").unwrap();
     let report = build_project(&project).unwrap();
 
-    // CE resources
-    assert!(report.ce_resources.join("pack.yml").is_file());
+    // pack dir
+    assert!(report.pack_dir.join("pack.yml").is_file());
     assert!(report
-        .ce_resources
+        .pack_dir
         .join("configuration")
         .join("images.yml")
         .is_file());
     assert!(report
-        .ce_resources
+        .pack_dir
         .join("configuration")
         .join("block_state_mappings.yml")
         .is_file());
     assert!(report
-        .ce_resources
+        .pack_dir
         .join("configuration")
         .join("_pack_creator_mappings.yml")
         .is_file());
-    assert!(report.ce_resources.join("resourcepack").is_dir());
+    assert!(report.pack_dir.join("resourcepack").is_dir());
 
     let mappings_text =
-        fs::read_to_string(report.ce_resources.join("configuration/block_state_mappings.yml"))
+        fs::read_to_string(report.pack_dir.join("configuration/block_state_mappings.yml"))
             .unwrap();
     assert!(mappings_text.contains("block_state_mappings:"));
     assert_eq!(
@@ -128,7 +128,7 @@ fn build_exports_ce_resources_and_zip() {
         embedded_whole_mappings_yaml().lines().count()
     );
 
-    let pack_yml = fs::read_to_string(report.ce_resources.join("pack.yml")).unwrap();
+    let pack_yml = fs::read_to_string(report.pack_dir.join("pack.yml")).unwrap();
     assert!(pack_yml.contains("namespace: fullpk"));
     assert!(pack_yml.contains("enable: true"));
 
@@ -205,7 +205,7 @@ fn custom_mappings_mode_skips_whole_block_table() {
     let report = build_project(&project).unwrap();
     assert!(
         !report
-            .ce_resources
+            .pack_dir
             .join("configuration/block_state_mappings.yml")
             .is_file()
     );

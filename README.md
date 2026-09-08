@@ -1,13 +1,13 @@
 # PackCreator
 
-Rust TUI / CLI for authoring **Craft-Engine** resource packs.
+Rust TUI / CLI for authoring **Minecraft resource packs**.
 
 Repository: [CntierTeam/pack-creator](https://github.com/CntierTeam/pack-creator)
 
-Create a **Project** (`build.pk` + `src/main`), edit CE-compatible configuration, then build:
+Create a **Project** (`build.pk` + `src/main`), edit configuration, then build:
 
-1. **CE resources** → drop into `plugins/CraftEngine/resources/<name>/`
-2. **resource_pack.zip** → client pack (fonts / lang / sounds / equipment + static assets)
+1. **Pack tree** → `pack.yml` + `configuration/` + `resourcepack/`
+2. **resource_pack.zip** → client resource pack (fonts / lang / sounds / equipment + static assets)
 
 ## Requirements
 
@@ -53,7 +53,7 @@ pack-creator build .
 
 Outputs:
 
-- `build/ce-resources/MyPack/` — Craft-Engine pack root (`pack.yml`, `configuration/`, `resourcepack/`)
+- `build/pack/MyPack/` — pack tree (`pack.yml`, `configuration/`, `resourcepack/`)
 - `build/resource_pack.zip` — client zip
 - `build/report.json` — build summary
 
@@ -86,7 +86,7 @@ project {
 }
 
 mappings {
-  mode = WHOLE   // embed full Craft-Engine block_state_mappings on CE export
+  mode = WHOLE   // embed full block_state_mappings on pack export
   font {
     codepointStartingValue = 19968
     override("minecraft:default", 57344)
@@ -102,23 +102,21 @@ pack {
 }
 
 export {
-  ceResources = "build/ce-resources"
+  packDir = "build/pack"
   resourcePackZip = "build/resource_pack.zip"
 }
 ```
 
-`WHOLE` copies Craft-Engine’s full `block_state_mappings` into the CE export (unless you already define that section).
+`WHOLE` embeds the full `block_state_mappings` table into the pack export (unless you already define that section).
 
-## What gets packed locally vs by Craft-Engine
+## What the local zip includes
 
-| Local zip | CE plugin runtime |
-|-----------|-------------------|
-| Font providers from `images` (+ offset chars) | Full item/block model generation |
-| Client `lang` | CMD / visual block state allocation |
-| `sounds.json`, equipment JSON | Overlays, obfuscation, conflict merge |
-| Static `resourcepack/` merge | Hosting / delivery |
-
-Items, blocks, furniture, recipes, etc. are authored as CE YAML and exported for the plugin.
+| Included now | Authored as config (more packing later) |
+|--------------|-----------------------------------------|
+| Font providers from `images` (+ offset chars) | Items / blocks model generation |
+| Client `lang` | Visual block-state allocation |
+| `sounds.json`, equipment JSON | Overlays / advanced merge |
+| Static `resourcepack/` merge | |
 
 ## CLI
 
@@ -127,7 +125,7 @@ Items, blocks, furniture, recipes, etc. are authored as CE YAML and exported for
 | `pack-creator` / `tui` | Interactive TUI |
 | `new <path> --name … --namespace …` | Scaffold Project |
 | `check [path]` | Scan configuration sections |
-| `build [path]` | Export CE resources + zip |
+| `build [path]` | Export pack tree + zip |
 
 ## Releases / CI
 

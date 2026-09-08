@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-/// All Craft-Engine configuration section roots we recognize.
+/// Configuration section roots recognized by PackCreator.
 pub const SECTION_ALIASES: &[(&str, &str)] = &[
     ("templates", "templates"),
     ("template", "templates"),

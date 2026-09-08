@@ -17,7 +17,7 @@ use zip::ZipWriter;
 
 #[derive(Debug, Clone)]
 pub struct BuildReport {
-    pub ce_resources: PathBuf,
+    pub pack_dir: PathBuf,
     pub resource_pack_zip: PathBuf,
     pub sections: Vec<String>,
     pub fonts_written: usize,
@@ -34,10 +34,10 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
     fs::create_dir_all(&cache)?;
     let _mappings = prepare_mappings(&project.build, &cache)?;
 
-    let ce_out = project.root.join(&project.build.export.ce_resources);
+    let pack_out = project.root.join(&project.build.export.pack_dir);
     let pack_name = &project.build.project.name;
-    let ce_pack_root = ce_out.join(pack_name);
-    export_ce_resources(project, &ce_pack_root, &configs)?;
+    let pack_root = pack_out.join(pack_name);
+    export_pack_tree(project, &pack_root, &configs)?;
 
     let staging = project.root.join("build").join("staging_rp");
     if staging.exists() {
@@ -46,7 +46,7 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
     fs::create_dir_all(&staging)?;
 
     let mut report = BuildReport {
-        ce_resources: ce_pack_root.clone(),
+        pack_dir: pack_root.clone(),
         resource_pack_zip: project.root.join(&project.build.export.resource_pack_zip),
         sections: index.sections.keys().cloned().collect(),
         fonts_written: 0,
@@ -85,7 +85,7 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
     let summary = json!({
         "project": pack_name,
         "namespace": project.build.project.namespace,
-        "ce_resources": report.ce_resources,
+        "pack_dir": report.pack_dir,
         "resource_pack_zip": report.resource_pack_zip,
         "sections": report.sections,
         "fonts_written": report.fonts_written,
@@ -105,7 +105,7 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
     Ok(report)
 }
 
-fn export_ce_resources(
+fn export_pack_tree(
     project: &Project,
     dest: &Path,
     configs: &LoadedConfigs,
@@ -124,7 +124,7 @@ fn export_ce_resources(
     copy_dir_merge(&conf_src, &conf_dst)?;
 
     if project.build.mappings.mode == crate::project::MappingsMode::Whole {
-        // Emit full CE block_state_mappings unless user already provided one
+        // Emit full block_state_mappings unless user already provided one
         let has_mappings = configs
             .raw_sections
             .contains_key("block_state_mappings");
@@ -136,7 +136,7 @@ fn export_ce_resources(
         }
     }
 
-    // Emit allocator seeds for CE-side use
+    // Emit allocator seeds for tooling / future packers
     let mut mapping_meta = serde_yaml::Mapping::new();
     mapping_meta.insert(
         YamlValue::String("mode".into()),
@@ -524,7 +524,7 @@ fn write_equipment_json(id: &str, value: &YamlValue, staging: &Path) -> Result<(
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent)?;
     }
-    // Pass through CE equipment shape loosely: layers from humanoid etc.
+    // Pass through equipment shape loosely: layers from humanoid etc.
     let mut layers = JsonMap::new();
     if let Some(map) = value.as_mapping() {
         for key in ["humanoid", "humanoid_leggings", "wings", "horse_body"] {
@@ -563,7 +563,7 @@ fn write_pack_mcmeta(project: &Project, staging: &Path) -> Result<()> {
 }
 
 fn strip_minimessage_light(s: &str) -> String {
-    // keep it readable in pack.mcmeta; CE itself uses MiniMessage at runtime
+    // keep it readable in pack.mcmeta; MiniMessage tags are stripped lightly
     let mut out = s.to_string();
     for tag in [
         "<white>",

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Stable ID allocator with JSON cache (Craft-Engine IdAllocator compatible shape).
+/// Stable ID allocator with JSON cache (font codepoints / CMD).
 #[derive(Debug)]
 pub struct IdAllocator {
     cache_path: PathBuf,

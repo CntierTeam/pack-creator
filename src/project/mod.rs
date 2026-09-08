@@ -97,8 +97,7 @@ fn write_scaffold_files(root: &Path, build: &BuildPk) -> Result<()> {
     fs::write(Project::src_main(root).join("pack.yml"), pack_yml)?;
 
     let images = format!(
-        r#"# Craft-Engine images / bitmap fonts
-# https://xiao-momi.github.io/craft-engine-wiki/configuration/image
+        r#"# Bitmap font / GUI images
 images:
   {ns}:example_icon:
     height: 16
@@ -111,7 +110,7 @@ images:
     fs::write(conf.join("images.yml"), images)?;
 
     let emoji = format!(
-        r#"# Craft-Engine emoji (depends on images)
+        r#"# Emoji (depends on images)
 emojis:
   {ns}:smile:
     image: {ns}:example_icon:0:0
@@ -181,7 +180,7 @@ equipments:
     fs::write(conf.join("paintings.yml"), paintings)?;
 
     let items = format!(
-        r#"# Forwarded to Craft-Engine as-is (CE generates models / CMD)
+        r#"# Custom items (models / CMD allocated at pack time as features land)
 items:
   {ns}:demo_item:
     material: PAPER
@@ -195,7 +194,7 @@ items:
     fs::write(conf.join("items.yml"), items)?;
 
     let blocks = format!(
-        r#"# Forwarded to Craft-Engine; uses WHOLE block_state_mappings from build.pk
+        r#"# Custom blocks; WHOLE block_state_mappings come from build.pk
 blocks:
   {ns}:demo_block:
     settings:
@@ -278,8 +277,8 @@ blocks:
     fs::write(
         root.join("README.md"),
         format!(
-            "# {}\n\nCraft-Engine pack authored with PackCreator.\n\n## Layout\n\n- `build.pk` — mappings (WHOLE) + pack config\n- `src/main/configuration/` — CE YAML sections\n- `src/main/resourcepack/` — static assets\n\n## Build\n\n```\npack-creator build .\n```\n\nOutputs:\n- `{}` — drop into `plugins/CraftEngine/resources/`\n- `{}` — client resource pack zip\n",
-            build.project.name, build.export.ce_resources, build.export.resource_pack_zip
+            "# {}\n\nMinecraft resource pack Project authored with PackCreator.\n\n## Layout\n\n- `build.pk` — mappings (WHOLE) + pack config\n- `src/main/configuration/` — pack YAML sections\n- `src/main/resourcepack/` — static assets\n\n## Build\n\n```\npack-creator build .\n```\n\nOutputs:\n- `{}` — project pack tree (`pack.yml` + configuration + resourcepack)\n- `{}` — client resource pack zip\n",
+            build.project.name, build.export.pack_dir, build.export.resource_pack_zip
         ),
     )?;
 

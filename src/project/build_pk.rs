@@ -235,14 +235,14 @@ impl Default for PackConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportConfig {
-    #[serde(default = "default_ce_out")]
-    pub ce_resources: String,
+    #[serde(default = "default_pack_dir")]
+    pub pack_dir: String,
     #[serde(default = "default_zip_out")]
     pub resource_pack_zip: String,
 }
 
-fn default_ce_out() -> String {
-    "build/ce-resources".into()
+fn default_pack_dir() -> String {
+    "build/pack".into()
 }
 fn default_zip_out() -> String {
     "build/resource_pack.zip".into()
@@ -251,7 +251,7 @@ fn default_zip_out() -> String {
 impl Default for ExportConfig {
     fn default() -> Self {
         Self {
-            ce_resources: default_ce_out(),
+            pack_dir: default_pack_dir(),
             resource_pack_zip: default_zip_out(),
         }
     }
@@ -310,7 +310,7 @@ project {{
 }}
 
 mappings {{
-  // WHOLE = embed full Craft-Engine block_state_mappings
+  // WHOLE = embed full block_state_mappings table on pack export
   mode = {mode}
   font {{
     codepointStartingValue = {cp}
@@ -348,7 +348,7 @@ pack {{
 }}
 
 export {{
-  ceResources = "{ce}"
+  packDir = "{pack_dir}"
   resourcePackZip = "{zip}"
 }}
 "#,
@@ -386,7 +386,7 @@ export {{
             recipes = f.recipes,
             categories = f.categories,
             loot = f.loot_tables,
-            ce = escape(&self.export.ce_resources),
+            pack_dir = escape(&self.export.pack_dir),
             zip = escape(&self.export.resource_pack_zip),
         )
     }
@@ -768,8 +768,8 @@ fn parse_build_pk(source: &str) -> Result<BuildPk> {
 
     if let Some(exp) = root.get("export") {
         let m = block(exp)?;
-        if let Some(v) = m.get("ceResources") {
-            out.export.ce_resources = as_str(v)?;
+        if let Some(v) = m.get("packDir").or_else(|| m.get("pack_dir")) {
+            out.export.pack_dir = as_str(v)?;
         }
         if let Some(v) = m.get("resourcePackZip") {
             out.export.resource_pack_zip = as_str(v)?;
@@ -835,7 +835,7 @@ pack {
   }
 }
 export {
-  ceResources = "out/ce"
+  packDir = "out/pack"
   resourcePackZip = "out/pack.zip"
 }
 "#;
@@ -859,7 +859,7 @@ export {
         assert!(!b.pack.features.items);
         assert!(!b.pack.features.blocks);
         assert!(!b.pack.features.loot_tables);
-        assert_eq!(b.export.ce_resources, "out/ce");
+        assert_eq!(b.export.pack_dir, "out/pack");
         assert_eq!(b.export.resource_pack_zip, "out/pack.zip");
     }
 

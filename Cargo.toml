@@ -2,7 +2,7 @@
 name = "pack_creator"
 version = "0.1.0"
 edition = "2021"
-description = "TUI tool to author and pack Craft-Engine resource packs"
+description = "TUI tool to author and pack Minecraft resource packs"
 license = "GPL-3.0"
 
 [[bin]]
