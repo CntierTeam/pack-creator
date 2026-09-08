@@ -1,0 +1,6 @@
+display_name: pack-creator
+short_description: Craft-Engine pack authoring — build.pk, WHOLE mappings, CE export
+default_prompt: >-
+  Follow the pack-creator skill. Use the pack-creator binary for Craft-Engine
+  Project create/check/build; keep build.pk + src/main layout; WHOLE mappings on
+  CE export; do not invent alternate pack roots.
