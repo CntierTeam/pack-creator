@@ -199,6 +199,10 @@ pub struct FeatureFlags {
     pub categories: bool,
     #[serde(default = "default_true")]
     pub loot_tables: bool,
+    #[serde(default = "default_true")]
+    pub gui: bool,
+    #[serde(default = "default_true")]
+    pub entities: bool,
 }
 
 impl Default for FeatureFlags {
@@ -218,6 +222,8 @@ impl Default for FeatureFlags {
             recipes: true,
             categories: true,
             loot_tables: true,
+            gui: true,
+            entities: true,
         }
     }
 }
@@ -344,6 +350,8 @@ pack {{
     recipes = {recipes}
     categories = {categories}
     lootTables = {loot}
+    gui = {gui}
+    entities = {entities}
   }}
 }}
 
@@ -386,6 +394,8 @@ export {{
             recipes = f.recipes,
             categories = f.categories,
             loot = f.loot_tables,
+            gui = f.gui,
+            entities = f.entities,
             pack_dir = escape(&self.export.pack_dir),
             zip = escape(&self.export.resource_pack_zip),
         )
@@ -763,6 +773,8 @@ fn parse_build_pk(source: &str) -> Result<BuildPk> {
             flag!(recipes, "recipes");
             flag!(categories, "categories");
             flag!(loot_tables, "lootTables");
+            flag!(gui, "gui");
+            flag!(entities, "entities");
         }
     }
 

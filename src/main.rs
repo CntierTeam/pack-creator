@@ -64,11 +64,13 @@ fn main() -> anyhow::Result<()> {
             println!("pack dir: {}", report.pack_dir.display());
             println!("ZIP:      {}", report.resource_pack_zip.display());
             println!(
-                "sections={} fonts={} langs={} sounds={} copied={}",
+                "sections={} fonts={} langs={} sounds={} items={} entities={} copied={}",
                 report.sections.len(),
                 report.fonts_written,
                 report.langs_written,
                 report.sounds_written,
+                report.item_models,
+                report.entity_models + report.entity_texture_replacements,
                 report.files_copied
             );
         }

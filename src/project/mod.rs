@@ -180,7 +180,7 @@ equipments:
     fs::write(conf.join("paintings.yml"), paintings)?;
 
     let items = format!(
-        r#"# Custom items (models / CMD allocated at pack time as features land)
+        r#"# Custom items — generation writes models/*.json + items/*.json + CMD overrides
 items:
   {ns}:demo_item:
     material: PAPER
@@ -189,9 +189,55 @@ items:
     model:
       type: minecraft:model
       path: {ns}:item/demo_item
+      generation:
+        parent: minecraft:item/generated
+        textures:
+          layer0: {ns}:item/demo_item
 "#
     );
     fs::write(conf.join("items.yml"), items)?;
+
+    let gui = format!(
+        r#"# GUI = bitmap images on font minecraft:gui (+ optional icon items)
+# Textures go under resourcepack/assets/<ns>/textures/font/gui/
+images:
+  {ns}:main_gui:
+    height: 140
+    ascent: 18
+    font: minecraft:gui
+    file: {ns}:font/gui/main_gui.png
+
+items:
+  {ns}:gui_next:
+    material: PAPER
+    model:
+      type: minecraft:model
+      path: {ns}:item/gui/next
+      generation:
+        parent: minecraft:item/generated
+        textures:
+          layer0: {ns}:item/gui/next
+"#
+    );
+    fs::write(conf.join("gui.yml"), gui)?;
+
+    let entities = format!(
+        r#"# Entity model / texture replacement
+# - model: writes assets/<ns>/models/entity/*.json
+# - replace_textures: copies PNG from this Project's resourcepack into the pack zip
+entity_models:
+  {ns}:demo_cow:
+    model:
+      path: {ns}:entity/demo_cow
+      parent: minecraft:block/block
+      textures:
+        all: {ns}:entity/demo_cow
+    replace_textures:
+      - from: {ns}:entity/demo_cow
+        to: minecraft:entity/cow/cow.png
+"#
+    );
+    fs::write(conf.join("entity_models.yml"), entities)?;
 
     let blocks = format!(
         r#"# Custom blocks; WHOLE block_state_mappings come from build.pk
@@ -210,7 +256,8 @@ blocks:
     fs::write(conf.join("blocks.yml"), blocks)?;
 
     let furniture = format!(
-        r#"furniture:
+        r#"# Furniture uses item models in the client zip (ItemDisplay at runtime)
+furniture:
   {ns}:demo_chair:
     settings:
       item: {ns}:demo_item
@@ -271,6 +318,54 @@ blocks:
         tex_dir.join("README.txt"),
         "Place example_icon.png here (referenced by configuration/images.yml).\n",
     )?;
+
+    let gui_tex = Project::resourcepack_dir(root)
+        .join("assets")
+        .join(ns)
+        .join("textures")
+        .join("font")
+        .join("gui");
+    fs::create_dir_all(&gui_tex)?;
+    fs::write(
+        gui_tex.join("README.txt"),
+        "Place main_gui.png here (referenced by configuration/gui.yml).\n",
+    )?;
+
+    let item_tex = Project::resourcepack_dir(root)
+        .join("assets")
+        .join(ns)
+        .join("textures")
+        .join("item");
+    fs::create_dir_all(item_tex.join("gui"))?;
+    fs::write(
+        item_tex.join("README.txt"),
+        "Place demo_item.png and gui/next.png textures referenced by items/gui config.\n",
+    )?;
+
+    let ent_tex = Project::resourcepack_dir(root)
+        .join("assets")
+        .join(ns)
+        .join("textures")
+        .join("entity");
+    fs::create_dir_all(&ent_tex)?;
+    fs::write(
+        ent_tex.join("README.txt"),
+        "Place demo_cow.png for entity_models replace_textures / model textures.\n",
+    )?;
+
+    // Minimal 1x1 PNGs so scaffold projects build without missing textures.
+    let tiny_png: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
+        0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8,
+        0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x05, 0xFE, 0xD4, 0xEF, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+    fs::write(tex_dir.join("example_icon.png"), tiny_png)?;
+    fs::write(gui_tex.join("main_gui.png"), tiny_png)?;
+    fs::write(item_tex.join("demo_item.png"), tiny_png)?;
+    fs::write(item_tex.join("gui").join("next.png"), tiny_png)?;
+    fs::write(ent_tex.join("demo_cow.png"), tiny_png)?;
 
     let mut readme = root.join("README.md");
     let _ = &mut readme;

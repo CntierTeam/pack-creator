@@ -24,7 +24,7 @@ Repo: https://github.com/CntierTeam/pack-creator
 1. A Project **must** contain `build.pk` and `src/main/` (with `configuration/` + `resourcepack/`).
 2. Prefer the **pack-creator binary** over re-implementing packing in ad-hoc scripts.
 3. `mappings.mode = WHOLE` embeds the full `block_state_mappings` table on pack export.
-4. Local zip generates fonts/lang/sounds/equipment + static assets; item/block model packing may still be incomplete — keep those as configuration for now.
+4. Local zip generates fonts (incl. GUI), lang, sounds, equipment, **item models**, **entity model/texture replace**, and static assets.
 5. On fuseblk mounts (e.g. `/projectsDir`), keep Cargo artifacts on a native FS (`CARGO_TARGET_DIR`).
 6. Code/comments in English; user-facing replies follow the user’s language.
 

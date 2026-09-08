@@ -77,6 +77,14 @@ Suffixes like `lang#items` are treated as `lang`.
 
 ## What local zip does / does not
 
-**Does:** merge `resourcepack/`, generate font providers from `images`, offset chars when enabled, client `lang`, `sounds.json`, equipment JSON, `pack.mcmeta`.
+**Does:**
 
-**Does not (yet):** full item/block model override generation, visual block-state allocation, overlays, obfuscation. Keep those as configuration for upcoming packers.
+- merge `resourcepack/`
+- `images` → `assets/<ns>/font/<name>.json` (GUI: set `font: minecraft:gui`)
+- item `generation` / `texture` → `assets/<ns>/models/...json`
+- modern `assets/<ns>/items/<id>.json`
+- legacy CMD overrides → `assets/minecraft/models/item/<material>.json`
+- `entity_models.model` → `assets/<ns>/models/entity/...json`
+- `entity_models.replace_textures` → copy PNG into pack (e.g. vanilla entity path)
+
+**Does not (yet):** full blockstate visual packing, OptiFine CEM `.jem`, overlays, obfuscation.

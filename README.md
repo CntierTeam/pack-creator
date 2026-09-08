@@ -111,12 +111,16 @@ export {
 
 ## What the local zip includes
 
-| Included now | Authored as config (more packing later) |
-|--------------|-----------------------------------------|
-| Font providers from `images` (+ offset chars) | Items / blocks model generation |
-| Client `lang` | Visual block-state allocation |
-| `sounds.json`, equipment JSON | Overlays / advanced merge |
+| Included now | Notes |
+|--------------|-------|
+| Font providers from `images` (+ offset chars) | GUI uses `font: minecraft:gui` |
+| Client `lang` | |
+| `sounds.json`, equipment JSON | |
+| **Item models** | `models/*.json`, `items/*.json`, legacy CMD overrides on `models/item/<material>.json` |
+| **Entity models / texture replace** | `models/entity/*.json` + `replace_textures` copies |
 | Static `resourcepack/` merge | |
+
+Furniture client visuals reuse **item models** (ItemDisplay is runtime, not zip).
 
 ## CLI
 

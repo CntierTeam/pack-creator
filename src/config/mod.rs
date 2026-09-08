@@ -49,6 +49,10 @@ pub const SECTION_ALIASES: &[(&str, &str)] = &[
     ("vanilla-loots", "vanilla-loots"),
     ("config_factory", "config_factory"),
     ("config-factories", "config_factory"),
+    ("entity_models", "entity_models"),
+    ("entity-models", "entity_models"),
+    ("entities", "entity_models"),
+    ("entity", "entity_models"),
 ];
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -72,6 +76,8 @@ pub struct LoadedConfigs {
     pub langs: BTreeMap<String, BTreeMap<String, String>>,
     pub sounds: BTreeMap<String, Value>,
     pub equipments: BTreeMap<String, Value>,
+    pub items: BTreeMap<String, Value>,
+    pub entity_models: BTreeMap<String, Value>,
     pub raw_sections: BTreeMap<String, Vec<(PathBuf, Value)>>,
 }
 
@@ -216,6 +222,24 @@ pub fn load_configs(dir: &Path) -> Result<LoadedConfigs> {
                         for (ik, iv) in m {
                             if let Some(id) = ik.as_str() {
                                 loaded.equipments.insert(id.to_string(), iv);
+                            }
+                        }
+                    }
+                }
+                "items" => {
+                    if let Value::Mapping(m) = val {
+                        for (ik, iv) in m {
+                            if let Some(id) = ik.as_str() {
+                                loaded.items.insert(id.to_string(), iv);
+                            }
+                        }
+                    }
+                }
+                "entity_models" => {
+                    if let Value::Mapping(m) = val {
+                        for (ik, iv) in m {
+                            if let Some(id) = ik.as_str() {
+                                loaded.entity_models.insert(id.to_string(), iv);
                             }
                         }
                     }

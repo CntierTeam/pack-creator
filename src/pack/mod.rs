@@ -15,6 +15,8 @@ use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
 use zip::ZipWriter;
 
+mod models;
+
 #[derive(Debug, Clone)]
 pub struct BuildReport {
     pub pack_dir: PathBuf,
@@ -24,6 +26,11 @@ pub struct BuildReport {
     pub langs_written: usize,
     pub sounds_written: usize,
     pub files_copied: usize,
+    pub item_models: usize,
+    pub modern_items: usize,
+    pub legacy_override_files: usize,
+    pub entity_models: usize,
+    pub entity_texture_replacements: usize,
 }
 
 pub fn build_project(project: &Project) -> Result<BuildReport> {
@@ -53,6 +60,11 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
         langs_written: 0,
         sounds_written: 0,
         files_copied: 0,
+        item_models: 0,
+        modern_items: 0,
+        legacy_override_files: 0,
+        entity_models: 0,
+        entity_texture_replacements: 0,
     };
 
     report.files_copied = copy_dir_merge(
@@ -60,7 +72,7 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
         &staging,
     )?;
 
-    if project.build.pack.features.images {
+    if project.build.pack.features.images || project.build.pack.features.gui {
         report.fonts_written =
             generate_fonts(project, &configs, &cache, &staging)?;
     }
@@ -72,6 +84,19 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
     }
     if project.build.pack.features.equipment {
         generate_equipments(&configs, &staging)?;
+    }
+    if project.build.pack.features.items {
+        let item_stats =
+            models::generate_item_models(project, &configs.items, &cache, &staging)?;
+        report.item_models = item_stats.item_models;
+        report.modern_items = item_stats.modern_items;
+        report.legacy_override_files = item_stats.legacy_override_files;
+    }
+    if project.build.pack.features.entities {
+        let ent_stats =
+            models::generate_entity_models(project, &configs.entity_models, &staging)?;
+        report.entity_models = ent_stats.entity_models;
+        report.entity_texture_replacements = ent_stats.entity_texture_replacements;
     }
 
     write_pack_mcmeta(project, &staging)?;
@@ -92,6 +117,11 @@ pub fn build_project(project: &Project) -> Result<BuildReport> {
         "langs_written": report.langs_written,
         "sounds_written": report.sounds_written,
         "files_copied": report.files_copied,
+        "item_models": report.item_models,
+        "modern_items": report.modern_items,
+        "legacy_override_files": report.legacy_override_files,
+        "entity_models": report.entity_models,
+        "entity_texture_replacements": report.entity_texture_replacements,
         "mappings_mode": match project.build.mappings.mode {
             crate::project::MappingsMode::Whole => "WHOLE",
             crate::project::MappingsMode::Custom => "CUSTOM",

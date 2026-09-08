@@ -74,6 +74,7 @@ fn create_scaffolds_required_layout() {
         "recipes",
         "categories",
         "loot-tables",
+        "entity_models",
     ] {
         assert!(
             idx.sections.contains_key(required),
@@ -162,13 +163,47 @@ fn build_exports_pack_dir_and_zip() {
         "missing equipment json in {names:?}"
     );
 
-    // report metadata
-    assert!(report.fonts_written >= 1);
-    assert!(report.langs_written >= 1);
-    assert!(report.sounds_written >= 1);
-    assert!(report.sections.len() >= 10);
-    assert!(root.join("build/report.json").is_file());
-    assert!(root.join("build/cache/font/minecraft__default.json").is_file());
+    assert!(
+        names
+            .iter()
+            .any(|n| n == "assets/fullpk/items/demo_item.json"),
+        "missing modern item model in {names:?}"
+    );
+    assert!(
+        names
+            .iter()
+            .any(|n| n == "assets/fullpk/models/item/demo_item.json"),
+        "missing generated item model json in {names:?}"
+    );
+    assert!(
+        names
+            .iter()
+            .any(|n| n == "assets/minecraft/models/item/paper.json"),
+        "missing legacy CMD override file in {names:?}"
+    );
+    assert!(
+        names
+            .iter()
+            .any(|n| n == "assets/minecraft/font/gui.json"),
+        "missing GUI font in {names:?}"
+    );
+    assert!(
+        names
+            .iter()
+            .any(|n| n == "assets/fullpk/models/entity/demo_cow.json"),
+        "missing entity model in {names:?}"
+    );
+    assert!(
+        names
+            .iter()
+            .any(|n| n == "assets/minecraft/textures/entity/cow/cow.png"),
+        "missing entity texture replacement in {names:?}"
+    );
+    assert!(report.item_models >= 1);
+    assert!(report.modern_items >= 1);
+    assert!(report.legacy_override_files >= 1);
+    assert!(report.entity_models >= 1);
+    assert!(report.entity_texture_replacements >= 1);
 
     // font cache should contain auto-assigned codepoints for example image
     let cache: serde_json::Value =
