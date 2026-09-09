@@ -4,7 +4,7 @@
 
 | Path | Role |
 |------|------|
-| `build.pk` | **All** pack configuration: project meta, mappings, features, export, **and** content sections (`items` / `images` / `entityModels` / …) |
+| `build.pk` | **All** pack configuration: project meta, mappings, features, export, content sections, **`override`** |
 | `src/main/resourcepack/` | Static Minecraft assets merged into zip / pack tree |
 | `src/main/configuration/` | Optional YAML overlays only (`build.pk` wins on id clash) |
 | `src/main/pack.yml` | Author-facing meta (export also writes `pack.yml`) |
@@ -54,11 +54,22 @@ pack {
 export {
   packDir = "build/pack"
   resourcePackZip = "build/resource_pack.zip"
+  // variants {
+  //   "26_2" { packFormat = 88; resourcePackZip = "build/resource_pack_26_2.zip" }
+  // }
+}
+
+zip {
+  method = DEFLATED
+  level = 6
 }
 
 items {
   "mypack:demo_item" {
     material = "PAPER"
+    data {
+      display-name = "<!i><white><image:mypack:example_icon> Demo</white>"
+    }
     model {
       path = "mypack:item/demo_item"
       generation {
@@ -78,6 +89,28 @@ images {
   }
 }
 
+lang {
+  en_us {
+    "pack.mypack.name" = "MyPack"
+    "item.mypack.demo_item" = "<!i><white><image:mypack:example_icon> Demo</white>"
+  }
+}
+
+// Client translation-key overrides (any xxx.xxx the resource pack can replace)
+override {
+  all {
+    "block.minecraft.dirt" = "Soft Dirt"
+    "gui.done" = "Done!"
+  }
+  zh_cn {
+    "item.minecraft.apple" = "脆甜苹果"
+    "gui.done" = "完成！"
+  }
+  en_us {
+    "item.minecraft.apple" = "Crispy Apple"
+  }
+}
+
 entityModels {
   "mypack:demo_cow" {
     model {
@@ -89,7 +122,17 @@ entityModels {
 }
 ```
 
-Content roots (aliases accepted): `images`, `emojis`, `items`, `blocks`, `entityModels`, `lang`, `sounds`, `equipments`, `furniture`, `paintings`, `templates`, `globalVariables`, `recipes`, `categories`, `lootTables`, `gui` (flattens nested `images`/`items`).
+Content roots (aliases accepted): `images`, `emojis`, `items`, `blocks`, `entityModels`, `lang`, **`override`**, `sounds`, `equipments`, `furniture`, `paintings`, `templates`, `globalVariables`, `recipes`, `categories`, `lootTables`, `gui` (flattens nested `images`/`items`).
+
+### `override { }` rules
+
+- Any client translation key (`item.minecraft.*`, `entity.*`, `death.*`, `enchantment.*`, `gui.*`, …) → `assets/minecraft/lang/<locale>.json`.
+- **`all { }`**: default values for every concrete locale; fills keys that `zh_cn` / `en_us` / … omit.
+- Locale-specific entries **win** over `all`; `override` wins over `lang` on the same key.
+- Shorthands: `item_name:ns:id` → `item.ns.id` (also `block_name:`, `entity:`, `enchantment:`, …).
+- Values may use `<image:ns:id>`, `<shift:N>`, MiniMessage colors → baked to PUA + `§` at pack time.
+
+### Other notes
 
 - `WHOLE`: on build, emit full `block_state_mappings.yml` unless the Project already defines that section.
 - `CUSTOM`: skip embedding the whole table.
@@ -102,7 +145,7 @@ Content roots (aliases accepted): `images`, `emojis`, `items`, `blocks`, `entity
 
 Canonical keys (aliases accepted):
 
-`templates`, `global-variables`, `images`, `emojis`, `lang`, `translations`, `sounds`, `jukebox-songs`, `equipments`, `items`, `blocks`, `block_state_mappings`, `furniture`, `paintings`, `recipes`, `categories`, `loot-tables`, `config_factory`, `entity_models`
+`templates`, `global-variables`, `images`, `emojis`, `lang`, `override`, `translations`, `sounds`, `jukebox-songs`, `equipments`, `items`, `blocks`, `block_state_mappings`, `furniture`, `paintings`, `recipes`, `categories`, `loot-tables`, `config_factory`, `entity_models`
 
 ## Build outputs
 
@@ -117,15 +160,13 @@ Canonical keys (aliases accepted):
 
 **Does:**
 
-- merge `resourcepack/`
+- merge `resourcepack/` (skips top-level `overlays/` then merges per variant)
 - `images` → `assets/<ns>/font/<name>.json` (GUI: set `font: minecraft:gui`)
-- **`override { }`**: client translation-key overrides. Any `xxx.xxx` ref (`item.minecraft.apple`, `gui.done`, `entity.minecraft.cow`, `death.attack.*`, …) goes to `assets/minecraft/lang/*.json` and replaces that ref in-game. Wins over `lang` on the same key. Shorthands `item_name:ns:id` / `entity:ns:id` / … expand to dotted keys.
-- **`lang { }`**: pack-local strings; item `data.display-name` also auto-fills `item.ns.id`.
-- **lang / override values** may use `<image:ns:id>`, `<shift:N>`, MiniMessage colors → baked to PUA + `§`
+- **`override` / `lang`** → `assets/minecraft/lang/*.json` (translation-key replacements; `all` fill-in; Component bake)
 - item `generation` / `texture` → `assets/<ns>/models/...json`
 - modern `assets/<ns>/items/<id>.json`
 - legacy CMD overrides → `assets/minecraft/models/item/<material>.json`
 - `entity_models.model` → `assets/<ns>/models/entity/...json`
 - `entity_models.replace_textures` → copy PNG into pack (e.g. vanilla entity path)
 
-**Does not (yet):** full blockstate visual packing, OptiFine CEM `.jem`, overlays, obfuscation.
+**Does not (yet):** full blockstate visual packing, OptiFine CEM `.jem`, runtime emoji keyword chat replace (server-side), PackSquash.
