@@ -119,6 +119,9 @@ Canonical keys (aliases accepted):
 
 - merge `resourcepack/`
 - `images` → `assets/<ns>/font/<name>.json` (GUI: set `font: minecraft:gui`)
+- **`override { }`**: client translation-key overrides. Any `xxx.xxx` ref (`item.minecraft.apple`, `gui.done`, `entity.minecraft.cow`, `death.attack.*`, …) goes to `assets/minecraft/lang/*.json` and replaces that ref in-game. Wins over `lang` on the same key. Shorthands `item_name:ns:id` / `entity:ns:id` / … expand to dotted keys.
+- **`lang { }`**: pack-local strings; item `data.display-name` also auto-fills `item.ns.id`.
+- **lang / override values** may use `<image:ns:id>`, `<shift:N>`, MiniMessage colors → baked to PUA + `§`
 - item `generation` / `texture` → `assets/<ns>/models/...json`
 - modern `assets/<ns>/items/<id>.json`
 - legacy CMD overrides → `assets/minecraft/models/item/<material>.json`

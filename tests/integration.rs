@@ -81,11 +81,17 @@ fn create_scaffolds_required_layout() {
             build.contents.keys().collect::<Vec<_>>()
         );
     }
+    assert!(build.contents.contains_key("override"));
+    assert!(build.contents["override"]["en_us"]
+        .as_mapping()
+        .unwrap()
+        .contains_key(serde_yaml::Value::String("item.minecraft.apple".into())));
     assert!(build.contents["items"].contains_key("demopack:demo_item"));
     assert!(build.contents["images"].contains_key("demopack:main_gui"));
 
     let text = fs::read_to_string(Project::build_pk_path(&root)).unwrap();
     assert!(text.contains("items {"));
+    assert!(text.contains("override {"));
     assert!(text.contains("\"demopack:demo_item\""));
     assert!(!Project::configuration_dir(&root).join("images.yml").is_file());
 
@@ -328,6 +334,54 @@ fn multi_variant_writes_separate_zips() {
     let filtered =
         pack_creator::build_project_filtered(&project, &["26.2".into()]).unwrap();
     assert_eq!(filtered.variants_built, vec!["26_2".to_string()]);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn build_bakes_image_tags_into_lang_json() {
+    let root = unique_dir("lang-bake");
+    let project = Project::create(&root, "Bake", "bake").unwrap();
+    let report = build_project(&project).unwrap();
+    let f = fs::File::open(&report.resource_pack_zip).unwrap();
+    let mut archive = ZipArchive::new(f).unwrap();
+    let en_text = {
+        let mut entry = archive.by_name("assets/minecraft/lang/en_us.json").unwrap();
+        let mut text = String::new();
+        entry.read_to_string(&mut text).unwrap();
+        text
+    };
+    let json: serde_json::Value = serde_json::from_str(&en_text).unwrap();
+    let item = json["item.bake.demo_item"].as_str().unwrap();
+    // MiniMessage tags must be baked away; glyph + § remain
+    assert!(!item.contains("<image:"));
+    assert!(!item.contains("<white>"));
+    assert!(item.contains('§'));
+    assert!(item.contains("Bake"));
+    // PUA private-use char from font allocator (U+4E00 range start is default codepoint)
+    assert!(item.chars().any(|c| {
+        let u = c as u32;
+        (0xE000..=0xF8FF).contains(&u) || (0x4E00..=0x9FFF).contains(&u)
+    }));
+
+    // Arbitrary vanilla translation-key overrides must also land in the same file
+    assert_eq!(json["item.minecraft.apple"].as_str().unwrap(), "Crispy Apple");
+    assert_eq!(json["gui.done"].as_str().unwrap(), "Done!");
+    // from override.all — en_us did not redefine these
+    assert_eq!(json["block.minecraft.dirt"].as_str().unwrap(), "Soft Dirt");
+    assert_eq!(json["entity.minecraft.cow"].as_str().unwrap(), "Moo Cow");
+
+    // Re-open zip to avoid overlapping ZipFile borrows
+    let f2 = fs::File::open(&report.resource_pack_zip).unwrap();
+    let mut archive2 = ZipArchive::new(f2).unwrap();
+    let mut entry_zh = archive2
+        .by_name("assets/minecraft/lang/zh_cn.json")
+        .unwrap();
+    let mut zh_text = String::new();
+    entry_zh.read_to_string(&mut zh_text).unwrap();
+    let zh_json: serde_json::Value = serde_json::from_str(&zh_text).unwrap();
+    assert_eq!(zh_json["gui.done"].as_str().unwrap(), "完成！"); // locale wins over all
+    assert_eq!(zh_json["block.minecraft.dirt"].as_str().unwrap(), "Soft Dirt"); // filled from all
+    assert_eq!(zh_json["entity.minecraft.cow"].as_str().unwrap(), "哞哞牛");
     let _ = fs::remove_dir_all(&root);
 }
 

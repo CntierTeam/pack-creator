@@ -149,18 +149,24 @@ images {
   }
 }
 
-entityModels {
-  "mypack:demo_cow" {
-    model {
-      path = "mypack:entity/demo_cow"
-      parent = "minecraft:block/block"
-      textures { all = "mypack:entity/demo_cow" }
-    }
+// Client translation-key overrides (any xxx.xxx the resource pack can replace)
+// `all` fills keys that zh_cn / en_us omit; locale-specific entries win.
+override {
+  all {
+    "block.minecraft.dirt" = "Soft Dirt"
+    "gui.done" = "Done!"
+  }
+  zh_cn {
+    "item.minecraft.apple" = "脆甜苹果"
+    "gui.done" = "完成！"
+  }
+  en_us {
+    "item.minecraft.apple" = "Crispy Apple"
   }
 }
 ```
 
-Content roots (aliases accepted): `items`, `images`, `emojis`, `entityModels`, `lang`, `sounds`, `equipments`, `blocks`, `furniture`, `paintings`, `templates`, `globalVariables`, `recipes`, `categories`, `lootTables`, `gui`.
+Content roots (aliases accepted): `items`, `images`, `emojis`, `entityModels`, `lang`, `override`, `sounds`, `equipments`, `blocks`, `furniture`, `paintings`, `templates`, `globalVariables`, `recipes`, `categories`, `lootTables`, `gui`.
 
 Quoted keys (`"ns:id"`) and lists (`keywords = [":)", ":hi:"]`) are supported.
 
@@ -196,7 +202,8 @@ zip {
 | Included now | Notes |
 |--------------|-------|
 | Font providers from `images` (+ offset chars) | GUI uses `font: minecraft:gui` |
-| Client `lang` | |
+| Client `lang` | Pack-local strings (`pack.x`, `item.ns.id`, …) |
+| Client `override` | **Translation-key overrides**: any `xxx.xxx` ref (`item.minecraft.apple`, `gui.done`, `death.*`, …) → `assets/minecraft/lang/<locale>.json`. Wins over `lang` on clash. Values may use `<image>`/`<shift>`/colors. |
 | `sounds.json`, equipment JSON | |
 | **Item models** | `models/*.json`, `items/*.json`, legacy CMD overrides on `models/item/<material>.json` |
 | **Entity models / texture replace** | `models/entity/*.json` + `replace_textures` copies |

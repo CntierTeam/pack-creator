@@ -47,6 +47,9 @@ const CONTENT_ROOTS: &[(&str, &str)] = &[
     ("lootTables", "loot-tables"),
     ("loot_tables", "loot-tables"),
     ("gui", "gui"),
+    // Client translation-key overrides (xxx.xxx → display text)
+    ("override", "override"),
+    ("overrides", "override"),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -567,6 +570,11 @@ impl BuildPk {
                         configs.items.insert(id.clone(), v.clone());
                     }
                 }
+                "blocks" => {
+                    for (id, v) in entries {
+                        configs.blocks.insert(id.clone(), v.clone());
+                    }
+                }
                 "entity_models" => {
                     for (id, v) in entries {
                         configs.entity_models.insert(id.clone(), v.clone());
@@ -575,13 +583,13 @@ impl BuildPk {
                 "lang" => {
                     for (locale, v) in entries {
                         let slot = configs.langs.entry(locale.clone()).or_default();
-                        if let YamlValue::Mapping(m) = v {
-                            for (k, val) in m {
-                                if let (Some(ks), Some(s)) = (k.as_str(), yaml_scalar_string(val)) {
-                                    slot.insert(ks.to_string(), s);
-                                }
-                            }
-                        }
+                        flatten_lang_into(None, v, slot);
+                    }
+                }
+                "override" => {
+                    for (locale, v) in entries {
+                        let slot = configs.overrides.entry(locale.clone()).or_default();
+                        flatten_lang_into(None, v, slot);
                     }
                 }
                 "sounds" => {
@@ -642,6 +650,7 @@ impl BuildPk {
                 "categories" => "categories",
                 "loot-tables" => "lootTables",
                 "gui" => "gui",
+                "override" => "override",
                 other => other,
             };
             content.push_str(&format!("\n{root} {{\n"));
@@ -858,6 +867,26 @@ fn yaml_scalar_string(v: &YamlValue) -> Option<String> {
     }
 }
 
+fn flatten_lang_into(prefix: Option<&str>, value: &YamlValue, out: &mut BTreeMap<String, String>) {
+    match value {
+        YamlValue::Mapping(m) => {
+            for (k, v) in m {
+                let Some(ks) = k.as_str() else { continue };
+                let key = match prefix {
+                    Some(p) => format!("{p}.{ks}"),
+                    None => ks.to_string(),
+                };
+                flatten_lang_into(Some(&key), v, out);
+            }
+        }
+        other => {
+            if let (Some(p), Some(s)) = (prefix, yaml_scalar_string(other)) {
+                out.insert(p.to_string(), s);
+            }
+        }
+    }
+}
+
 fn default_scaffold_contents(ns: &str, name: &str) -> BTreeMap<String, BTreeMap<String, YamlValue>> {
     let mut contents = BTreeMap::new();
 
@@ -1004,15 +1033,86 @@ fn default_scaffold_contents(ns: &str, name: &str) -> BTreeMap<String, BTreeMap<
 
     let mut lang = BTreeMap::new();
     let pack_name_key = format!("pack.{ns}.name");
+    let title = format!("<!i><white><image:{ns}:example_icon> {name}</white>");
     lang.insert(
         "en_us".into(),
-        yaml_map_owned(&[(pack_name_key.clone(), YamlValue::String(name.into()))]),
+        yaml_map_owned(&[
+            (pack_name_key.clone(), YamlValue::String(name.into())),
+            (
+                format!("item.{ns}.demo_item"),
+                YamlValue::String(title.clone()),
+            ),
+            (
+                format!("subtitles.{ns}.demo_click"),
+                YamlValue::String("UI click".into()),
+            ),
+        ]),
     );
     lang.insert(
         "zh_cn".into(),
-        yaml_map_owned(&[(pack_name_key, YamlValue::String(name.into()))]),
+        yaml_map_owned(&[
+            (pack_name_key, YamlValue::String(name.into())),
+            (
+                format!("item.{ns}.demo_item"),
+                YamlValue::String(format!(
+                    "<!i><white><image:{ns}:example_icon> {name}</white>"
+                )),
+            ),
+            (
+                format!("subtitles.{ns}.demo_click"),
+                YamlValue::String("界面点击".into()),
+            ),
+        ]),
     );
     contents.insert("lang".into(), lang);
+
+    // Client translation-key overrides. `all` fills keys that zh_cn/en_us omit.
+    let mut overrides = BTreeMap::new();
+    overrides.insert(
+        "all".into(),
+        yaml_map_owned(&[
+            (
+                "block.minecraft.dirt".into(),
+                YamlValue::String("Soft Dirt".into()),
+            ),
+            (
+                "entity.minecraft.cow".into(),
+                YamlValue::String("Moo Cow".into()),
+            ),
+            (
+                "death.attack.anvil".into(),
+                YamlValue::String("%1$s was squashed by a falling anvil".into()),
+            ),
+            ("gui.done".into(), YamlValue::String("Done!".into())),
+        ]),
+    );
+    overrides.insert(
+        "en_us".into(),
+        yaml_map_owned(&[(
+            "item.minecraft.apple".into(),
+            YamlValue::String("Crispy Apple".into()),
+        )]),
+    );
+    overrides.insert(
+        "zh_cn".into(),
+        yaml_map_owned(&[
+            (
+                "item.minecraft.apple".into(),
+                YamlValue::String("脆甜苹果".into()),
+            ),
+            // locale-specific wins over `all`
+            ("gui.done".into(), YamlValue::String("完成！".into())),
+            (
+                "entity.minecraft.cow".into(),
+                YamlValue::String("哞哞牛".into()),
+            ),
+            (
+                "death.attack.anvil".into(),
+                YamlValue::String("%1$s 被坠落的铁砧砸扁了".into()),
+            ),
+        ]),
+    );
+    contents.insert("override".into(), overrides);
 
     let mut sounds = BTreeMap::new();
     sounds.insert(

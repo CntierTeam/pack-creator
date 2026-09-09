@@ -53,6 +53,8 @@ pub const SECTION_ALIASES: &[(&str, &str)] = &[
     ("entity-models", "entity_models"),
     ("entities", "entity_models"),
     ("entity", "entity_models"),
+    ("override", "override"),
+    ("overrides", "override"),
 ];
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -74,9 +76,13 @@ pub struct LoadedConfigs {
     pub images: BTreeMap<String, Value>,
     pub emojis: BTreeMap<String, Value>,
     pub langs: BTreeMap<String, BTreeMap<String, String>>,
+    /// Client translation overrides (`override { zh_cn { "item.minecraft.x" = "…" } }`).
+    /// Applied on top of `langs` (wins on key clash).
+    pub overrides: BTreeMap<String, BTreeMap<String, String>>,
     pub sounds: BTreeMap<String, Value>,
     pub equipments: BTreeMap<String, Value>,
     pub items: BTreeMap<String, Value>,
+    pub blocks: BTreeMap<String, Value>,
     pub entity_models: BTreeMap<String, Value>,
     pub raw_sections: BTreeMap<String, Vec<(PathBuf, Value)>>,
 }
@@ -197,14 +203,18 @@ pub fn load_configs(dir: &Path) -> Result<LoadedConfigs> {
                                 continue;
                             };
                             let entry = loaded.langs.entry(locale.to_string()).or_default();
-                            if let Value::Mapping(pairs) = lv {
-                                for (pk, pv) in pairs {
-                                    if let (Some(p), Some(s)) = (pk.as_str(), yaml_to_string(&pv))
-                                    {
-                                        entry.insert(p.to_string(), s);
-                                    }
-                                }
-                            }
+                            flatten_lang_yaml(None, &lv, entry);
+                        }
+                    }
+                }
+                "override" => {
+                    if let Value::Mapping(locales) = val {
+                        for (lk, lv) in locales {
+                            let Some(locale) = lk.as_str() else {
+                                continue;
+                            };
+                            let entry = loaded.overrides.entry(locale.to_string()).or_default();
+                            flatten_lang_yaml(None, &lv, entry);
                         }
                     }
                 }
@@ -235,6 +245,15 @@ pub fn load_configs(dir: &Path) -> Result<LoadedConfigs> {
                         }
                     }
                 }
+                "blocks" => {
+                    if let Value::Mapping(m) = val {
+                        for (ik, iv) in m {
+                            if let Some(id) = ik.as_str() {
+                                loaded.blocks.insert(id.to_string(), iv);
+                            }
+                        }
+                    }
+                }
                 "entity_models" => {
                     if let Value::Mapping(m) = val {
                         for (ik, iv) in m {
@@ -249,6 +268,26 @@ pub fn load_configs(dir: &Path) -> Result<LoadedConfigs> {
         }
     }
     Ok(loaded)
+}
+
+fn flatten_lang_yaml(prefix: Option<&str>, value: &Value, out: &mut BTreeMap<String, String>) {
+    match value {
+        Value::Mapping(m) => {
+            for (k, v) in m {
+                let Some(ks) = k.as_str() else { continue };
+                let key = match prefix {
+                    Some(p) => format!("{p}.{ks}"),
+                    None => ks.to_string(),
+                };
+                flatten_lang_yaml(Some(&key), v, out);
+            }
+        }
+        other => {
+            if let (Some(p), Some(s)) = (prefix, yaml_to_string(other)) {
+                out.insert(p.to_string(), s);
+            }
+        }
+    }
 }
 
 fn yaml_to_string(v: &Value) -> Option<String> {

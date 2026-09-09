@@ -15,7 +15,10 @@ use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
 use zip::ZipWriter;
 
+mod component;
 mod models;
+
+use component::{bake_client_lang, GlyphRegistry, ImageGlyph, OffsetFont};
 
 #[derive(Debug, Clone)]
 pub struct BuildReport {
@@ -96,12 +99,20 @@ pub fn build_project_filtered(project: &Project, variant_filter: &[String]) -> R
         &["overlays"],
     )?;
 
-    if project.build.pack.features.images || project.build.pack.features.gui {
-        report.fonts_written =
-            generate_fonts(project, &configs, &cache, &staging)?;
+    // Font glyphs first — lang Component baking needs codepoints
+    let mut glyphs = GlyphRegistry::default();
+    if project.build.pack.features.images
+        || project.build.pack.features.gui
+        || project.build.pack.features.lang
+    {
+        let (written, registry) = generate_fonts(project, &configs, &cache, &staging)?;
+        if project.build.pack.features.images || project.build.pack.features.gui {
+            report.fonts_written = written;
+        }
+        glyphs = registry;
     }
     if project.build.pack.features.lang {
-        report.langs_written = generate_langs(&configs, &staging)?;
+        report.langs_written = generate_langs(&configs, &staging, &glyphs)?;
     }
     if project.build.pack.features.sounds {
         report.sounds_written = generate_sounds(&configs, &staging)?;
@@ -342,15 +353,19 @@ fn generate_fonts(
     configs: &LoadedConfigs,
     cache: &Path,
     staging: &Path,
-) -> Result<usize> {
+) -> Result<(usize, GlyphRegistry)> {
     // font key -> providers
     let mut fonts: BTreeMap<String, Vec<JsonValue>> = BTreeMap::new();
     let mut allocators: BTreeMap<String, IdAllocator> = BTreeMap::new();
+    let mut registry = GlyphRegistry::default();
     let ns = &project.build.project.namespace;
 
-    // optional offset characters from embedded asset
     if project.build.mappings.font.offset_characters {
         inject_offset_chars(project, &mut fonts)?;
+        registry.offsets = Some(OffsetFont::from_offset_chars_yaml(
+            &project.build.mappings.font.offset_font,
+            include_str!("../../assets/offset_chars.yml"),
+        )?);
     }
 
     for (id, value) in &configs.images {
@@ -380,18 +395,24 @@ fn generate_fonts(
         }
         let alloc = allocators.get_mut(&font).expect("font allocator inserted");
 
-        let chars = resolve_chars(id, map, alloc)?;
+        let (chars_json, glyph_rows) = resolve_chars_with_grid(id, map, alloc)?;
+        registry.images.insert(
+            id.clone(),
+            ImageGlyph {
+                font: font.clone(),
+                rows: glyph_rows,
+            },
+        );
         let mut provider = JsonMap::new();
         provider.insert("type".into(), json!("bitmap"));
         provider.insert("file".into(), json!(ensure_png(file)));
         provider.insert("height".into(), json!(height));
         provider.insert("ascent".into(), json!(ascent));
-        provider.insert("chars".into(), JsonValue::Array(chars));
+        provider.insert("chars".into(), JsonValue::Array(chars_json));
         fonts.entry(font).or_default().push(JsonValue::Object(provider));
     }
 
-    for (font, alloc) in allocators.iter_mut() {
-        let _ = font;
+    for (_font, alloc) in allocators.iter_mut() {
         alloc.process_pending();
         alloc.save()?;
     }
@@ -421,7 +442,7 @@ fn generate_fonts(
         fs::write(&out, serde_json::to_string_pretty(&doc)?)?;
         written += 1;
     }
-    Ok(written)
+    Ok((written, registry))
 }
 
 fn inject_offset_chars(
@@ -470,39 +491,42 @@ fn inject_offset_chars(
     Ok(())
 }
 
-fn resolve_chars(
+fn resolve_chars_with_grid(
     id: &str,
     map: &serde_yaml::Mapping,
     alloc: &mut IdAllocator,
-) -> Result<Vec<JsonValue>> {
+) -> Result<(Vec<JsonValue>, Vec<Vec<char>>)> {
     if let Some(v) = map
         .get(YamlValue::String("char".into()))
         .or_else(|| map.get(YamlValue::String("unicode".into())))
     {
         let s = yaml_scalar_string(v)?;
         let decoded = decode_char_token(&s);
-        let cp = decoded.chars().next().map(|c| c as u32).unwrap_or(0);
-        alloc.assign_fixed(id, cp)?;
-        return Ok(vec![JsonValue::String(decoded)]);
+        let ch = decoded.chars().next().unwrap_or('\u{FFFD}');
+        alloc.assign_fixed(id, ch as u32)?;
+        return Ok((vec![JsonValue::String(decoded)], vec![vec![ch]]));
     }
     if let Some(v) = map.get(YamlValue::String("chars".into())) {
         match v {
             YamlValue::Sequence(seq) => {
                 let mut out = Vec::new();
+                let mut rows = Vec::new();
                 for (i, item) in seq.iter().enumerate() {
                     let s = yaml_scalar_string(item)?;
                     let decoded = decode_char_token(&s);
-                    let cp = decoded.chars().next().map(|c| c as u32).unwrap_or(0);
+                    let row_chars: Vec<char> = decoded.chars().collect();
+                    let cp = row_chars.first().copied().unwrap_or('\u{FFFD}') as u32;
                     alloc.assign_fixed(&format!("{id}:{i}"), cp)?;
                     out.push(JsonValue::String(decoded));
+                    rows.push(row_chars);
                 }
-                return Ok(out);
+                return Ok((out, rows));
             }
             YamlValue::String(s) => {
                 let decoded = decode_char_token(s);
-                let cp = decoded.chars().next().map(|c| c as u32).unwrap_or(0);
-                alloc.assign_fixed(id, cp)?;
-                return Ok(vec![JsonValue::String(decoded)]);
+                let ch = decoded.chars().next().unwrap_or('\u{FFFD}');
+                alloc.assign_fixed(id, ch as u32)?;
+                return Ok((vec![JsonValue::String(decoded)], vec![vec![ch]]));
             }
             _ => {}
         }
@@ -514,16 +538,21 @@ fn resolve_chars(
             .unwrap_or("1,1"),
     )?;
     let mut lines = Vec::new();
+    let mut grid = Vec::new();
     for r in 0..rows {
         let mut line = String::new();
+        let mut row_chars = Vec::new();
         for c in 0..cols {
             let key = format!("{id}:{r}:{c}");
             let cp = alloc.request_auto(&key);
-            line.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
+            let ch = char::from_u32(cp).unwrap_or('\u{FFFD}');
+            line.push(ch);
+            row_chars.push(ch);
         }
         lines.push(JsonValue::String(line));
+        grid.push(row_chars);
     }
-    Ok(lines)
+    Ok((lines, grid))
 }
 
 fn parse_grid(s: &str) -> Result<(usize, usize)> {
@@ -581,9 +610,75 @@ fn split_key(key: &str) -> (String, String) {
     }
 }
 
-fn generate_langs(configs: &LoadedConfigs, staging: &Path) -> Result<usize> {
-    let mut written = 0;
+fn generate_langs(
+    configs: &LoadedConfigs,
+    staging: &Path,
+    glyphs: &GlyphRegistry,
+) -> Result<usize> {
+    // Collect locales from lang + override; `all` merges into every locale.
+    let mut by_locale: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    let mut all_pairs: BTreeMap<String, String> = BTreeMap::new();
+
+    let mut ingest = |locale: &str, pairs: &BTreeMap<String, String>, force: bool| {
+        let mut flat = BTreeMap::new();
+        for (k, v) in pairs {
+            for ek in expand_translation_key(k) {
+                flat.insert(ek, v.clone());
+            }
+        }
+        if locale.eq_ignore_ascii_case("all") {
+            if force {
+                all_pairs.extend(flat);
+            } else {
+                for (k, v) in flat {
+                    all_pairs.entry(k).or_insert(v);
+                }
+            }
+        } else {
+            let slot = by_locale.entry(locale.to_string()).or_default();
+            if force {
+                slot.extend(flat);
+            } else {
+                for (k, v) in flat {
+                    slot.entry(k).or_insert(v);
+                }
+            }
+        }
+    };
+
+    // lang first, then override (wins)
     for (locale, pairs) in &configs.langs {
+        ingest(locale, pairs, false);
+    }
+    for (locale, pairs) in &configs.overrides {
+        ingest(locale, pairs, true);
+    }
+
+    // Auto language refs from items/blocks (explicit lang/override win)
+    let auto = collect_auto_translation_refs(configs);
+
+    // `all { }` fills keys missing in each concrete locale (zh_cn / en_us / …).
+    // If only `all` was declared, seed the usual client locales so the fill has targets.
+    if !all_pairs.is_empty() && by_locale.is_empty() {
+        for loc in ["en_us", "zh_cn"] {
+            by_locale.insert(loc.into(), BTreeMap::new());
+        }
+    } else if by_locale.is_empty() && !auto.is_empty() {
+        by_locale.insert("en_us".into(), BTreeMap::new());
+    }
+
+    for pairs in by_locale.values_mut() {
+        for (k, v) in &auto {
+            pairs.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        // Locale-specific keys already present win; `all` only patches holes.
+        for (k, v) in &all_pairs {
+            pairs.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
+
+    let mut written = 0;
+    for (locale, pairs) in by_locale {
         let out = staging
             .join("assets")
             .join("minecraft")
@@ -599,11 +694,172 @@ fn generate_langs(configs: &LoadedConfigs, staging: &Path) -> Result<usize> {
                 map.extend(existing);
             }
         }
-        map.extend(pairs.clone());
+        for (k, v) in pairs {
+            map.insert(k, bake_client_lang(&v, glyphs)?);
+        }
         fs::write(&out, serde_json::to_string_pretty(&map)?)?;
         written += 1;
     }
     Ok(written)
+}
+
+/// Expand author lang keys into Minecraft translation keys (client refs).
+///
+/// Any dotted key is written as-is into `assets/minecraft/lang/*.json` and
+/// overrides that client translation ref, e.g.:
+///   `item.minecraft.apple`, `death.attack.player`, `gui.done`, `enchantment.minecraft.sharpness`
+///
+/// Shorthands with namespaced ids (`category:ns:path` or `*_name:ns:path`):
+///   `item_name:mypack:gem` → `item.mypack.gem`
+///   `entity:minecraft:zombie` → `entity.minecraft.zombie`
+fn expand_translation_key(key: &str) -> Vec<String> {
+    // Pure dotted Minecraft keys (the common case for vanilla overrides).
+    if !key.contains(':') {
+        return vec![key.to_string()];
+    }
+
+    let Some((kind, rest)) = key.split_once(':') else {
+        return vec![key.to_string()];
+    };
+
+    let category = match kind {
+        "item_name" => "item",
+        "block_name" => "block",
+        "entity_name" => "entity",
+        "enchantment_name" => "enchantment",
+        "effect_name" | "mob_effect_name" => "effect",
+        "biome_name" => "biome",
+        "painting_name" => "painting",
+        "attribute_name" => "attribute",
+        "instrument_name" => "instrument",
+        "stat_name" => "stat",
+        "advancement_name" => "advancement",
+        "trim_pattern_name" => "trim_pattern",
+        "trim_material_name" => "trim_material",
+        "jukebox_song_name" => "jukebox_song",
+        "subtitle_name" | "subtitles_name" => "subtitles",
+        other => other,
+    };
+
+    // Only expand when rest is namespaced (`ns:path`); otherwise keep original.
+    if rest.contains(':') && is_lang_category(category) {
+        return vec![format!("{category}.{}", rest.replace(':', "."))];
+    }
+
+    vec![key.to_string()]
+}
+
+fn is_lang_category(category: &str) -> bool {
+    matches!(
+        category,
+        "item"
+            | "block"
+            | "entity"
+            | "biome"
+            | "enchantment"
+            | "effect"
+            | "painting"
+            | "attribute"
+            | "instrument"
+            | "stat"
+            | "advancement"
+            | "trim_pattern"
+            | "trim_material"
+            | "jukebox_song"
+            | "subtitles"
+            | "subtitle"
+            | "container"
+            | "gui"
+            | "menu"
+            | "key"
+            | "color"
+            | "gamerule"
+            | "commands"
+            | "argument"
+            | "chat"
+            | "death"
+            | "filled_map"
+            | "filledMap"
+            | "options"
+            | "selectWorld"
+            | "resourcePack"
+            | "pack"
+            | "soundCategory"
+            | "difficulty"
+            | "permission"
+            | "structure"
+            | "flat_world_preset"
+            | "generator"
+            | "upgrade"
+    )
+}
+
+fn namespaced_id_to_lang_key(prefix: &str, id: &str) -> String {
+    format!("{prefix}.{}", id.replace(':', "."))
+}
+
+fn extract_item_display_name(value: &YamlValue) -> Option<String> {
+    let map = value.as_mapping()?;
+    if let Some(s) = map
+        .get(YamlValue::String("name".into()))
+        .and_then(|v| v.as_str())
+    {
+        return Some(s.to_string());
+    }
+    if let Some(data) = map
+        .get(YamlValue::String("data".into()))
+        .and_then(|v| v.as_mapping())
+    {
+        for key in ["display-name", "item-name", "item_name", "name"] {
+            if let Some(s) = data
+                .get(YamlValue::String(key.into()))
+                .and_then(|v| v.as_str())
+            {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn extract_block_display_name(value: &YamlValue) -> Option<String> {
+    let map = value.as_mapping()?;
+    if let Some(s) = map
+        .get(YamlValue::String("name".into()))
+        .and_then(|v| v.as_str())
+    {
+        return Some(s.to_string());
+    }
+    if let Some(settings) = map
+        .get(YamlValue::String("settings".into()))
+        .and_then(|v| v.as_mapping())
+    {
+        if let Some(s) = settings
+            .get(YamlValue::String("name".into()))
+            .or_else(|| settings.get(YamlValue::String("display-name".into())))
+            .and_then(|v| v.as_str())
+        {
+            return Some(s.to_string());
+        }
+    }
+    None
+}
+
+/// Build `item.ns.id` / `block.ns.id` refs from content so the client lang file
+/// can replace those translation keys (resource-pack language override).
+fn collect_auto_translation_refs(configs: &LoadedConfigs) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for (id, value) in &configs.items {
+        if let Some(name) = extract_item_display_name(value) {
+            out.insert(namespaced_id_to_lang_key("item", id), name);
+        }
+    }
+    for (id, value) in &configs.blocks {
+        if let Some(name) = extract_block_display_name(value) {
+            out.insert(namespaced_id_to_lang_key("block", id), name);
+        }
+    }
+    out
 }
 
 fn generate_sounds(configs: &LoadedConfigs, staging: &Path) -> Result<usize> {
