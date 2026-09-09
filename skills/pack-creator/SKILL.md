@@ -1,7 +1,7 @@
 ---
 name: pack-creator
 description: >-
-  Author and pack Minecraft resource packs with the PackCreator Rust TUI/CLI.
+  Author and pack Minecraft resource packs with the PackCreator CLI/TUI.
   Covers Project layout (build.pk + src/main), WHOLE mappings, multi-version
   export.variants (26.2 / pack_format 88), zip compression, override{} client
   translation-key replacements (with all{} fill), Component baking for lang
@@ -10,51 +10,35 @@ description: >-
   WHOLE mappings, override lang, translation key, 26.2, pack_format.
 license: GPL-3.0
 metadata:
-  short-description: Minecraft resource pack TUI/CLI (build.pk)
+  short-description: Use pack-creator to author Minecraft resource packs
 ---
 
 # pack-creator
 
-Rust TUI/CLI for authoring **PackCreator Projects** that export a pack tree and
-a client `resource_pack.zip`.
+Use the **`pack-creator` binary** to author PackCreator Projects and export a
+pack tree + client `resource_pack.zip`. This skill is for **using** the tool on
+pack projects — not for developing the PackCreator source repo.
 
-Repo: https://github.com/CntierTeam/pack-creator
+Binary install: https://github.com/CntierTeam/pack-creator
 
 ## Hard rules
 
-1. A Project **must** contain `build.pk` and `src/main/` (with `configuration/` + `resourcepack/`).
-2. Prefer the **pack-creator binary** over re-implementing packing in ad-hoc scripts.
-3. **All pack config aggregates in `build.pk`** (items/images/gui/entities/`override`/…). YAML under `configuration/` is optional overlay; `build.pk` wins.
+1. Prefer the **installed `pack-creator` binary** over inventing custom pack scripts or hand-writing zip trees.
+2. A Project **must** contain `build.pk` and `src/main/` (`configuration/` + `resourcepack/`).
+3. **All pack config lives in `build.pk`** (items / images / gui / entities / `override` / …). YAML under `configuration/` is optional overlay; **`build.pk` wins**.
 4. `mappings.mode = WHOLE` embeds the full `block_state_mappings` table on pack export.
-5. Use `export.variants` for multi-version zips (`26_2` → pack_format 88); `zip { level = N }` for compression; `pack.mcmeta` always includes min/max/supported_formats.
-6. Client language refs: put translation-key overrides in **`override { }`** (any `xxx.xxx`). Use **`all { }`** as defaults; `zh_cn` / `en_us` only need differing keys. Locale-specific wins; `all` fills holes. Output: `assets/minecraft/lang/<locale>.json`.
-7. Lang/override **values** may use `<image:ns:id>`, `<shift:N>`, colors — baked to PUA + `§` at pack time (client lang is plain string).
-8. On fuseblk mounts (e.g. `/projectsDir`), keep Cargo artifacts on a native FS (`CARGO_TARGET_DIR`).
-9. Code/comments in English; user-facing replies follow the user’s language.
+5. Multi-version: `export.variants` (`26_2` → pack_format **88**); `zip { level = N }`; `pack.mcmeta` gets min/max/supported_formats.
+6. Client translation keys: put overrides in **`override { }`**. Use **`all { }`** for shared defaults; locale blocks only need diffs. Locale wins over `all`; `override` wins over `lang`. Output: `assets/minecraft/lang/<locale>.json`.
+7. Lang/override **values** may use `<image:ns:id>`, `<shift:N>`, colors — baked to PUA + `§` at pack time.
+8. User-facing replies follow the user’s language.
 
-## Resolve the binary
-
-```bash
-command -v pack-creator
-# or
-/tmp/packcreator-target/debug/pack-creator --help
-./target/debug/pack-creator --help
-./target/release/pack-creator --help
-```
-
-Build:
+## Install / resolve the binary
 
 ```bash
-export CARGO_TARGET_DIR=/tmp/packcreator-target   # if source is on fuseblk
-cargo build
-cargo build --release
-cargo test
-```
-
-Install from Releases:
-
-```bash
+# Preferred: Release install onto PATH
 curl -fsSL https://raw.githubusercontent.com/CntierTeam/pack-creator/main/scripts/install.sh | bash
+command -v pack-creator
+pack-creator --help
 ```
 
 ## Command map
@@ -66,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/CntierTeam/pack-creator/main/script
 | Validate | `pack-creator check [dir]` |
 | Build pack + zip | `pack-creator build [dir] [--variant NAME]…` |
 
-## Project layout
+## Project layout (the pack you edit)
 
 ```text
 MyPack/
@@ -82,7 +66,7 @@ MyPack/
     report.json
 ```
 
-Read [references/project-layout.md](references/project-layout.md) for `build.pk` DSL and section keys.
+DSL details: [references/project-layout.md](references/project-layout.md).
 
 ## `override { }` (client translation keys)
 
@@ -105,25 +89,15 @@ override {
 
 - Any Minecraft translation key works (`item.*`, `entity.*`, `death.*`, `enchantment.*`, …).
 - Shorthands: `item_name:ns:id` → `item.ns.id` (also `block_name:`, `entity:`, …).
-- `override` wins over `lang` on the same key.
 - Item `data.display-name` also auto-fills `item.ns.id` when not set explicitly.
 
 ## Typical agent workflow
 
-1. Confirm cwd is PackCreator repo or an existing Project (`build.pk` present).
-2. Create: `pack-creator new ./MyPack --name MyPack --namespace mypack`.
-3. Edit `build.pk` (aggregate config, especially `override` / `items` / `images`) + assets under `resourcepack/`.
+1. Confirm the cwd (or target dir) is a **PackCreator Project** (`build.pk` present), or create one.
+2. Create if needed: `pack-creator new ./MyPack --name MyPack --namespace mypack`.
+3. Edit `build.pk` (`override` / `items` / `images` / …) and assets under `src/main/resourcepack/`.
 4. `pack-creator check .` then `pack-creator build .` (optional `--variant 26_2`).
-5. Use `build/pack/<name>/` as the project pack tree; ship `build/resource_pack.zip` (or per-variant zips) to clients.
-
-## Install this skill into Codex
-
-```bash
-./scripts/install-codex-skill.sh              # copy
-./scripts/install-codex-skill.sh link         # symlink
-./scripts/install-codex-skill.sh release      # pull from GitHub
-curl -fsSL https://raw.githubusercontent.com/CntierTeam/pack-creator/main/scripts/install-codex-skill.sh | bash -s -- release
-```
+5. Deliver `build/pack/<name>/` and/or `build/resource_pack.zip` (or per-variant zips).
 
 ## References
 
