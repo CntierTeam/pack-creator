@@ -1,6 +1,7 @@
 display_name: pack-creator
-short_description: Minecraft resource pack authoring — build.pk, WHOLE mappings, zip export
+short_description: Use pack-creator — build.pk authoring, override lang, zip export
 default_prompt: >-
-  Follow the pack-creator skill. Use the pack-creator binary for Project
-  create/check/build; keep build.pk + src/main layout; WHOLE mappings on pack
-  export; do not invent alternate pack roots.
+  Follow the pack-creator skill for using the pack-creator binary on pack
+  projects (not for developing PackCreator itself). Prefer pack-creator
+  new/check/build; keep build.pk + src/main; put config in build.pk; use
+  override{} for client translation keys; WHOLE mappings on pack export.
