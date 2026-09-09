@@ -236,6 +236,8 @@ git push origin v0.1.0
 
 ## Codex skill
 
+**操作员代跑 / execute-first**：用 shell 直接跑 `pack-creator` 建包 / check / build，不是只贴教程。
+
 ```bash
 # from a checkout:
 ./scripts/install-codex-skill.sh              # copy

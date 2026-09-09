@@ -1,45 +1,65 @@
 ---
 name: pack-creator
 description: >-
-  Author and pack Minecraft resource packs with the PackCreator CLI/TUI.
-  Covers Project layout (build.pk + src/main), WHOLE mappings, multi-version
-  export.variants (26.2 / pack_format 88), zip compression, override{} client
-  translation-key replacements (with all{} fill), Component baking for lang
-  values (<image>/<shift>), pack tree export, and resource_pack.zip generation.
-  Trigger on: PackCreator, pack-creator, build.pk, Minecraft resource pack,
-  WHOLE mappings, override lang, translation key, 26.2, pack_format.
+  Operate PackCreator CLI/TUI `pack-creator` by running it for the user to
+  author and export Minecraft resource packs. Covers Project layout (build.pk +
+  src/main), WHOLE mappings, multi-version export.variants (26.2 / pack_format
+  88), zip compression, override{} client translation-key replacements (with
+  all{} fill), Component baking for lang values (<image>/<shift>), pack tree
+  export, and resource_pack.zip generation. Prefer shell execution over pasting
+  recipes. Trigger on: PackCreator, pack-creator, build.pk, Minecraft resource
+  pack, WHOLE mappings, override lang, translation key, 26.2, pack_format.
 license: GPL-3.0
 metadata:
-  short-description: Use pack-creator to author Minecraft resource packs
+  short-description: 代跑 pack-creator（建包/校验/导出）
 ---
 
 # pack-creator
 
-Use the **`pack-creator` binary** to author PackCreator Projects and export a
-pack tree + client `resource_pack.zip`. This skill is for **using** the tool on
-pack projects — not for developing the PackCreator source repo.
+产品：**`pack-creator`** — Minecraft 资源包 Project 的 CLI/TUI（`build.pk` + zip 导出）。
 
-Binary install: https://github.com/CntierTeam/pack-creator
+你是 **操作员**：用户要新建包、改 `build.pk`、校验、按变体导出 → **自己在 shell 执行 `pack-creator`**，不要只拼命令或教用户手搓 zip。
 
-## Hard rules
+本 skill 是 **execute-first**：代跑产品，不是开发 PackCreator crates。DSL/布局细节见 [references/project-layout.md](references/project-layout.md)。
 
-1. Prefer the **installed `pack-creator` binary** over inventing custom pack scripts or hand-writing zip trees.
-2. A Project **must** contain `build.pk` and `src/main/` (`configuration/` + `resourcepack/`).
-3. **All pack config lives in `build.pk`** (items / images / gui / entities / `override` / …). YAML under `configuration/` is optional overlay; **`build.pk` wins**.
-4. `mappings.mode = WHOLE` embeds the full `block_state_mappings` table on pack export.
-5. Multi-version: `export.variants` (`26_2` → pack_format **88**); `zip { level = N }`; `pack.mcmeta` gets min/max/supported_formats.
-6. Client translation keys: put overrides in **`override { }`**. Use **`all { }`** for shared defaults; locale blocks only need diffs. Locale wins over `all`; `override` wins over `lang`. Output: `assets/minecraft/lang/<locale>.json`.
-7. Lang/override **values** may use `<image:ns:id>`, `<shift:N>`, colors — baked to PUA + `§` at pack time.
-8. User-facing replies follow the user’s language.
+Repo: https://github.com/CntierTeam/pack-creator
 
-## Install / resolve the binary
+## Agent 硬规则
+
+1. **执行优先**：能跑就跑。二进制：`pack-creator` 或 `~/.local/bin/pack-creator`；没有就先装。
+2. **禁止**用「组装指令 / SAMPLE / YOUR_CLI / 长篇手工 zip 教程」代替执行。短句说明 → 立刻跑 → 根据输出继续。
+3. 用户要建包/构建/导出 → **马上** `pack-creator new` / `check` / `build`。缺目录名、namespace、variant 时只问缺的那一项，问完继续跑。
+4. 命令名永远 **`pack-creator`**，禁止 `SAMPLE` / `YOUR_CLI`。
+5. Project **必须**有 `build.pk` + `src/main/`（`configuration/` + `resourcepack/`）。**配置全在 `build.pk`**；YAML overlay 可选且 **`build.pk` 胜出**。
+6. 保留产品语义：`mappings.mode = WHOLE`；`export.variants`（`26_2` → pack_format **88**）；`zip { level = N }`；客户端翻译键放 **`override { }`**（`all { }` 填默认，locale 覆盖）；值可含 `<image:…>` / `<shift:N>`，构建时烘焙。
+7. TUI：用户明确要交互全屏时再 `pack-creator` / `pack-creator tui`；Agent 代控优先子命令。
+
+## 标准代跑流
 
 ```bash
-# Preferred: Release install onto PATH
-curl -fsSL https://raw.githubusercontent.com/CntierTeam/pack-creator/main/scripts/install.sh | bash
-command -v pack-creator
-pack-creator --help
+command -v pack-creator || ~/.local/bin/pack-creator --help
+
+# 无 Project 则创建：
+pack-creator new ./MyPack --name MyPack --namespace mypack
+
+# 已有 Project：
+cd ./MyPack   # 或传 [dir]
+pack-creator check .
+pack-creator build .                    # 可选：--variant 26_2
+# 交付：build/pack/<name>/ 与 build/resource_pack.zip（或 per-variant zip）
 ```
+
+## 意图 → 怎么跑
+
+| 用户意图 | 执行 |
+|----------|------|
+| 新建资源包 Project | `pack-creator new <dir> --name <Name> --namespace <ns>` |
+| 校验 | `pack-creator check [dir]` |
+| 构建 / 导出 zip | `pack-creator build [dir] [--variant NAME]…` |
+| 多版本（26.2 / format 88） | 在 `build.pk` 配 `export.variants`，再 `build --variant 26_2` |
+| 改翻译键 / override | 编辑 `build.pk` 的 `override { }`，再 `check` → `build` |
+| WHOLE mappings | `build.pk` 里 `mappings { mode = WHOLE }`，再 build |
+| 要 TUI | 启动 `pack-creator` / `pack-creator tui` |
 
 ## Command map
 
@@ -50,15 +70,15 @@ pack-creator --help
 | Validate | `pack-creator check [dir]` |
 | Build pack + zip | `pack-creator build [dir] [--variant NAME]…` |
 
-## Project layout (the pack you edit)
+## Project layout（代跑时要认）
 
 ```text
 MyPack/
-  build.pk             # ALL configuration (meta + content + override)
+  build.pk             # ALL configuration（含 override / items / images / …）
   src/main/
     pack.yml
     configuration/     # optional YAML overlays
-    resourcepack/      # static assets (+ optional overlays/<variant>/)
+    resourcepack/      # static assets（+ overlays/<variant>/）
   build/               # created by build
     pack/<name>/
     resource_pack.zip
@@ -66,9 +86,7 @@ MyPack/
     report.json
 ```
 
-DSL details: [references/project-layout.md](references/project-layout.md).
-
-## `override { }` (client translation keys)
+### `override { }`（客户端翻译键）
 
 ```text
 override {
@@ -82,23 +100,18 @@ override {
   }
   en_us {
     "item.minecraft.apple" = "Crispy Apple"
-    // dirt / gui.done filled from all
   }
 }
 ```
 
-- Any Minecraft translation key works (`item.*`, `entity.*`, `death.*`, `enchantment.*`, …).
-- Shorthands: `item_name:ns:id` → `item.ns.id` (also `block_name:`, `entity:`, …).
-- Item `data.display-name` also auto-fills `item.ns.id` when not set explicitly.
+- 任意 MC 翻译键；简写 `item_name:ns:id` → `item.ns.id`。
+- locale 胜 `all`；`override` 胜 `lang`。输出：`assets/minecraft/lang/<locale>.json`。
 
-## Typical agent workflow
+## Install（仅当本机没有 pack-creator）
 
-1. Confirm the cwd (or target dir) is a **PackCreator Project** (`build.pk` present), or create one.
-2. Create if needed: `pack-creator new ./MyPack --name MyPack --namespace mypack`.
-3. Edit `build.pk` (`override` / `items` / `images` / …) and assets under `src/main/resourcepack/`.
-4. `pack-creator check .` then `pack-creator build .` (optional `--variant 26_2`).
-5. Deliver `build/pack/<name>/` and/or `build/resource_pack.zip` (or per-variant zips).
+```bash
+curl -fsSL https://raw.githubusercontent.com/CntierTeam/pack-creator/main/scripts/install.sh | bash
+command -v pack-creator && pack-creator --help
+```
 
-## References
-
-- Layout & DSL: [references/project-layout.md](references/project-layout.md)
+https://github.com/CntierTeam/pack-creator

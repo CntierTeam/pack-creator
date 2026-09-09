@@ -1,7 +1,6 @@
-display_name: pack-creator
-short_description: Use pack-creator — build.pk authoring, override lang, zip export
-default_prompt: >-
-  Follow the pack-creator skill for using the pack-creator binary on pack
-  projects (not for developing PackCreator itself). Prefer pack-creator
-  new/check/build; keep build.pk + src/main; put config in build.pk; use
-  override{} for client translation keys; WHOLE mappings on pack export.
+interface:
+  display_name: "pack-creator"
+  short_description: "代跑 pack-creator：建包/校验/导出"
+  default_prompt: "按 $pack-creator 当操作员：用户要新建资源包、改 build.pk、check/build/导出 zip（含 override、WHOLE、variants）时，用 shell 直接跑 pack-creator，不要只拼命令或 SAMPLE。缺目录名/namespace/variant 再问一句然后继续跑。"
+policy:
+  allow_implicit_invocation: true

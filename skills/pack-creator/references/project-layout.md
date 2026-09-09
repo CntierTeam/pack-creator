@@ -1,5 +1,7 @@
 # Project layout & build.pk
 
+Skill 为 execute-first 操作员代跑；本文件是 `build.pk` DSL 备查，不是替代 `pack-creator` 执行。
+
 ## Required roots
 
 | Path | Role |
